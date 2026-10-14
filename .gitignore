@@ -1,0 +1,47 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# environments
+.venv/
+.venv-tutorial/
+
+# build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# test and lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# assessment output — a report is produced by a run, not committed
+reports/
+
+# datasets, model artefacts and scratch output (from the pre-restructure layout)
+data/
+dataset_paths/
+model_paths/
+model/
+plots/
+
+# Note: `notebooks/` was ignored in the pre-restructure layout. The tutorial lives in
+# docs/tutorial.ipynb and is tracked; anything under notebooks/ is scratch.
+notebooks/
+.ipynb_checkpoints/
+
+# exported figures. The figure *builders* are the tracked artefact; a PNG of one is not.
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# editors and OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,471 @@
+# The action catalogue: what could be done about each kind of finding.
+#
+# THIS FILE IS DATA, AND IT IS WRITTEN BY PEOPLE. Nothing here is generated, and no
+# language model is allowed to write an entry — a model may only *select and order* from
+# what is written below. That is the whole design: what to do about a weak model is
+# domain knowledge about your deployment, not knowledge about language. A model asked to
+# invent remediation produces fluent, plausible, unfounded advice, and that is the
+# hallucination that would actually hurt someone, because it is the output people act on.
+#
+# Edit it freely. You do not need to touch any Python to add an action, reword one, or
+# delete one you disagree with.
+#
+# Each key is a finding `rule` id, exactly as `report/findings.py` and `report/rules.py`
+# emit it. Run this to see the ones in play for a given report:
+#
+#     sorted({f.rule for f in report.findings()})
+#
+# Fields, all optional except `action`:
+#
+#   action       what to do, imperative, one line.
+#   precondition when this action applies. "always" if unconditional. This is prose for a
+#                human to judge, not a machine-checked expression — the library cannot
+#                know whether your imaging pipeline can be changed.
+#   owner        who would do it. Lets a summary addressed to a clinician say "the ML team
+#                could ..." rather than implying the reader should do it themselves.
+#   cost         rough effort, so a reader can triage. Free text; be honest.
+#   caveat       what this action trades away, or where it commonly goes wrong. Present on
+#                most entries on purpose: an action list with no caveats reads as a recipe
+#                and gets followed without thought.
+#   evidence     what to measure to confirm the action worked or was needed.
+
+# ==========================================================================
+# accuracy
+# ==========================================================================
+
+accuracy.criterion_failed:
+  - action: Revisit whether the threshold is the right one for this deployment
+    precondition: always — do this before any modelling work
+    owner: whoever owns the deployment
+    cost: a conversation
+    caveat: >-
+      Not an invitation to move the bar until it passes. The rationale recorded on the
+      requirement is the thing to argue with; if it no longer describes the deployment,
+      the threshold is wrong, and if it does, the model is.
+    evidence: the requirement's own `rationale` field
+  - action: Retrain with class weights or resampling to lift the weaker class
+    precondition: the failure is on a class-balanced metric and the classes are imbalanced
+    owner: the ML team
+    cost: one retraining cycle
+    caveat: >-
+      Trades aggregate accuracy for the weaker class. State the trade explicitly, because
+      it will look like a regression on whichever metric the previous owner was watching.
+    evidence: per-class recall before and after
+  - action: Add training data for the region where the model fails
+    precondition: the error analysis identifies a region of feature space
+    owner: the data team
+    cost: substantial — collection and labelling
+    caveat: >-
+      Only worth starting once the error model or the feature-bin analysis has actually
+      localised the failure. Collecting more of everything rarely moves a specific gap.
+    evidence: error rate within the identified region
+
+accuracy.no_criteria:
+  - action: Agree acceptance thresholds with whoever owns the deployment and record them
+    precondition: always
+    owner: whoever owns the deployment, with the ML team
+    cost: a meeting
+    caveat: >-
+      The library cannot supply these and neither can the ML team alone. Survey §8 makes
+      the acceptance bar a property of the deployment. Until they exist, this assessment
+      reports numbers and not a verdict.
+    evidence: an AcceptanceCriteria object, in a config file, with a rationale per metric
+
+accuracy.requirement_not_measured:
+  - action: Check whether the handler's access level can produce the metric at all
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      A black-box model has no calibration error to measure. If the metric is genuinely
+      unavailable, the requirement needs rewriting rather than the run repeating.
+    evidence: the evaluator's `plan()`, which names each skipped metric and why
+
+accuracy.class_error_rate:
+  - action: Read the confusion matrix for where this class goes instead
+    precondition: always — before changing anything
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      Two classes being confused with each other is a different problem from one class
+      being scattered across all the others, and they have different fixes.
+    evidence: the `top_confusions` ranking
+  - action: Move the decision threshold to favour this class
+    precondition: the model is probabilistic and the costs of the two errors differ
+    owner: the ML team, with whoever owns the deployment
+    cost: no retraining — a threshold change
+    caveat: >-
+      Strictly a trade: fewer misses of this class means more false positives elsewhere.
+      Worth it only when the two errors genuinely cost different amounts, and someone has
+      to say by how much.
+    evidence: the precision/recall pair at the old and new thresholds
+
+accuracy.subgroup_gap:
+  - action: Check whether the subgroup axis is confounded with the label
+    precondition: always — do this first
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      If the grouping correlates with the outcome, the groups have different base rates
+      and their accuracies were never comparable. The gap is then a property of the
+      grouping, not evidence of unfair treatment. This mistake is easy to make and hard
+      to notice.
+    evidence: outcome prevalence within each subgroup
+  - action: Test whether the gap is distinguishable from sampling noise
+    precondition: the subgroups are small
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      A significant result still does not say the difference matters clinically, and a
+      non-significant one is not evidence of equivalence.
+    evidence: compare_groups() — the omnibus test and the corrected pairwise comparisons
+  - action: Reweight training data toward the under-served subgroup
+    precondition: the gap survives both checks above and tracks group size
+    owner: the ML team
+    cost: one retraining cycle
+    caveat: Lifts the worst group by lowering the aggregate. Say so when reporting it.
+    evidence: worst-group accuracy before and after
+
+accuracy.miscalibrated:
+  - action: Establish first whether anything downstream reads the probability
+    precondition: always
+    owner: whoever owns the deployment
+    cost: a conversation
+    caveat: >-
+      Calibration matters wherever a probability is acted on — a review threshold, a
+      triage queue, an expected-cost calculation — and not at all where only the
+      top-scoring class is used. Fixing it in the second case is wasted work.
+    evidence: how the model's output is consumed
+  - action: Fit a temperature on a held-out calibration split
+    precondition: the probability is acted on, and a calibration split exists or can be carved out
+    owner: the ML team
+    cost: minutes, no retraining
+    caveat: >-
+      Cannot change any prediction, which is its appeal. But it optimises log-likelihood
+      rather than calibration error, so it can leave the latter unchanged or worse — and
+      one scalar cannot fix a model miscalibrated in one part of its confidence range and
+      well calibrated in another. Read the reliability diagram, not just the single number.
+    evidence: expected calibration error on the test set before and after
+
+accuracy.errors_on_outliers:
+  - action: Treat degradation under perturbation as expected rather than surprising
+    precondition: always
+    owner: the ML team
+    cost: none — an interpretation
+    caveat: >-
+      The model is already weak on the tails of its own training distribution, so a
+      synthetic shift that pushes cases into that region will find weakness that was
+      already there. Fixing the robustness number without fixing the tails moves nothing.
+    evidence: the outlier error rate against the inlier error rate
+  - action: Add an input-distance check that abstains on unusual inputs
+    precondition: an abstention path exists — a human reviewer, a fallback rule
+    owner: the ML team, with whoever owns the deployment
+    cost: moderate — a detector plus a route for what it flags
+    caveat: >-
+      Only useful if there is somewhere for a flagged case to go. An abstention with no
+      fallback is an outage.
+    evidence: error rate on the cases the detector would have flagged
+
+accuracy.uncertainty_uninformative:
+  - action: Do not staff a human review queue on this confidence signal
+    precondition: always, while this holds
+    owner: whoever owns the deployment
+    cost: none — a decision not to build something
+    caveat: >-
+      The flagged cases are no more often wrong than the rest, so the queue would sort at
+      close to random. This is a useful negative result: it prevents spending review
+      capacity for no gain.
+    evidence: error rate among flagged against unflagged predictions
+  - action: Try calibration, or a different uncertainty estimate
+    precondition: a review queue is genuinely wanted
+    owner: the ML team
+    cost: moderate
+    caveat: >-
+      An ensemble's disagreement or a conformal interval may carry information where the
+      softmax entropy does not. No guarantee that any of them will.
+    evidence: the same flagged/unflagged error-rate comparison, recomputed
+
+# ==========================================================================
+# robustness
+# ==========================================================================
+
+robustness.no_tolerance:
+  - action: State how much degradation this deployment can absorb, and on which basis
+    precondition: always
+    owner: whoever owns the deployment
+    cost: a meeting
+    caveat: >-
+      Survey §8 calls the tolerance the one element no evaluation instrument can supply.
+      The basis matters as much as the number: the same sweep can pass on the aggregate
+      and fail on the worst cell, and `worst_cell` is the conservative reading.
+    evidence: a RobustnessCriteria object, in a config file, with a rationale
+
+robustness.tolerance_exceeded:
+  - action: Look at the named perturbation, not at robustness in general
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      The verdict names the perturbation and the severity that broke it. Noise the model
+      shrugs off and a missing measurement it does not are completely different
+      engineering problems.
+    evidence: the severity curve for that perturbation, and a sensitivity map over it
+  - action: Establish whether the failing severity is one this deployment will ever see
+    precondition: always
+    owner: whoever owns the deployment, with the domain expert
+    cost: a conversation
+    caveat: >-
+      A tolerance that passes at severity 3 and fails at 4 is a specification, not a
+      failure — provided somebody can say which severity the real world produces. If
+      nobody can, the conservative reading stands.
+    evidence: measured drift or missingness rates from the deployed pipeline
+  - action: Add the perturbation to training as augmentation
+    precondition: the perturbation is realistic and label-preserving at that severity
+    owner: the ML team
+    cost: one retraining cycle
+    caveat: >-
+      Buys robustness to the perturbations you thought of, and can cost clean accuracy.
+      It does not generalise to shifts you did not anticipate.
+    evidence: the same severity curve, re-swept after retraining
+  - action: Detect the condition at inference instead of tolerating it
+    precondition: the perturbation is detectable in the input — missingness, saturation, drift
+    owner: the ML team
+    cost: moderate
+    caveat: >-
+      Often the better answer for a missing measurement: detect and abstain rather than
+      impute and hope. Needs a fallback path.
+    evidence: detection rate against the perturbation severity
+
+robustness.worst_cell:
+  - action: Report the worst case beside the average, in whatever ships
+    precondition: always
+    owner: the ML team
+    cost: none
+    caveat: >-
+      Survey §8 asks for both because an aggregate over severities hides the cliff. A
+      graceful decline and a sudden collapse can share the same mean.
+    evidence: the severity curve's shape, not just its endpoints
+
+robustness.tolerance_not_checked:
+  - action: Score the metric over an underlying metric of the right orientation
+    precondition: always
+    owner: the ML team
+    cost: minutes — no new model calls
+    caveat: >-
+      The error family needs an error metric and the Eq. 11-12 family needs an accuracy.
+      A tolerance that was never checked is not a tolerance that passed.
+    evidence: the robustness report's `unchecked` list, empty
+
+# ==========================================================================
+# sensitivity and attribution
+# ==========================================================================
+
+sensitivity.single_dominant_input:
+  - action: Find out what happens to this input in production
+    precondition: always
+    owner: the ML team, with whoever runs the data pipeline
+    cost: a conversation
+    caveat: >-
+      A single dominant input is a single point of failure: a sensor outage, a unit
+      change or a schema rename there takes the model with it. Worth knowing before it
+      happens rather than after.
+    evidence: the input's provenance, and its historical missingness and drift
+  - action: Add a range or plausibility check on this input at inference
+    precondition: the input has a known valid range
+    owner: the ML team
+    cost: small
+    caveat: Catches gross faults, not slow drift within the valid range.
+    evidence: how often the check would have fired on historical data
+
+sensitivity.hottest_cell:
+  - action: Read the map for flat rows as well as hot ones
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      A flat row is an input whose precision does not need buying. That is a cost saving,
+      and it is the half of the map people skip.
+    evidence: the per-feature tipping points
+
+attribution.surrogate_untrustworthy:
+  - action: Accept that the errors are unstructured, and stop looking for a pattern
+    precondition: always, while the surrogate is below its gate
+    owner: the ML team
+    cost: none
+    caveat: >-
+      A finding, not a failure. The cases the model gets wrong do not share a describable
+      region of feature space, which for a model going into use is the better outcome.
+      Feature importances are always computable; ones from a surrogate that cannot predict
+      its target are noise in the shape of an explanation.
+    evidence: the surrogate's test AUROC against its gate threshold
+  - action: Retry with more evaluation data before concluding anything
+    precondition: the test set is small
+    owner: the ML team
+    cost: depends on data availability
+    caveat: >-
+      There is one surrogate row per entity, so a few hundred cases is thin for a
+      thirty-feature surrogate. An underpowered refusal and a real absence of structure
+      look identical.
+    evidence: the surrogate's train and test row counts
+
+attribution.error_drivers:
+  - action: Check the marginal relationship before believing the ranking
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      These are characteristics of the inputs the model gets *wrong*, not causes of it
+      getting them wrong, and nothing in the method distinguishes the two. If the ranking
+      is real it shows up in the raw per-case values without a model in between.
+    evidence: feature_error_scatter() for the top-ranked feature
+
+attribution.surrogate_overfitted:
+  - action: Read the attribution as a hypothesis, not a conclusion
+    precondition: always, while train and test scores diverge
+    owner: the ML team
+    cost: none
+    caveat: >-
+      The surrogate may be memorising rows rather than finding structure. The ranking is
+      worth checking, not worth acting on.
+    evidence: the surrogate's train against test score
+
+# ==========================================================================
+# group comparison
+# ==========================================================================
+
+groups.significant_difference:
+  - action: Read the effect size and the per-group means beside the p-value
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      A significant difference is not necessarily a large one. With enough samples a
+      difference too small to matter still rejects.
+    evidence: the effect size, and the group means
+
+groups.no_significant_difference:
+  - action: Do not report this as evidence that the groups are equivalent
+    precondition: always
+    owner: the ML team
+    cost: none
+    caveat: >-
+      Failing to reject is not equivalence. With these group sizes the test may lack the
+      power to detect a difference that would matter.
+    evidence: the group sizes, and the smallest difference the test could have detected
+
+groups.tests_disagree:
+  - action: Look at the distribution before quoting either p-value
+    precondition: always
+    owner: the ML team
+    cost: minutes
+    caveat: >-
+      The parametric and rank-based tests disagreeing usually means a skewed metric or
+      one group carrying an outlier. Which test is right depends on which, and the box
+      plot answers it faster than the statistics do.
+    evidence: the per-group box plot
+
+# ==========================================================================
+# reporting — these are about the report, not the model
+# ==========================================================================
+
+reporting.relative_without_absolute:
+  - action: Put the absolute clean and perturbed values in the same table
+    precondition: always
+    owner: whoever writes the report
+    cost: none
+    caveat: >-
+      Losing 2% of 0.91 and 2% of 0.52 are the same number and not remotely the same
+      claim.
+    evidence: the report's robustness section carrying `clean`
+
+reporting.aggregate_without_breakdown:
+  - action: Break the aggregate out by class and by subgroup
+    precondition: always
+    owner: the ML team
+    cost: one argument to the evaluator, no extra model calls
+    caveat: >-
+      An aggregate is high exactly when the majority group is well served, and it cannot
+      show a group at 0.55 hidden inside an overall 0.90.
+    evidence: per_class and subgroup sections present in the report
+
+reporting.calibration_on_clean_only:
+  - action: Sweep a calibration metric too, or score confidence retention
+    precondition: a calibration metric was measured on clean data
+    owner: the ML team
+    cost: no extra model calls if folded into the existing sweep
+    caveat: >-
+      Calibration is usually the first thing to go under shift and it goes silently: a
+      model whose accuracy falls while its stated confidence does not is the dangerous
+      case, because nothing downstream can tell.
+    evidence: a calibration metric present in the sweep's metric list
+
+reporting.composite_without_components:
+  - action: Report the components and the weights beside the composite
+    precondition: always
+    owner: whoever writes the report
+    cost: none
+    caveat: >-
+      A composite is a weighting decision wearing the clothes of a measurement. Two
+      models can reach the same score by being strong in opposite places.
+    evidence: the component metrics, in the same table
+
+reporting.single_severity:
+  - action: Sweep the whole severity axis rather than one level
+    precondition: always
+    owner: the ML team
+    cost: linear in the number of severities
+    caveat: >-
+      One severity is one point. Whether the model declines gracefully or falls off a
+      cliff is the finding, and it is invisible from a single point.
+    evidence: a curve with more than one severity per perturbation
+
+reporting.corruption_error_without_relative:
+  - action: Add the relative form of the corruption error
+    precondition: a baseline sweep already exists
+    owner: the ML team
+    cost: none — same baseline, no extra model calls
+    caveat: >-
+      The plain form penalises a model twice for being weak when clean: once for its
+      clean error and again for carrying it into the perturbed error.
+    evidence: both metrics present in the robustness scores
+
+reporting.aggregate_without_perturbation_set:
+  - action: Record which perturbations the aggregate was taken over
+    precondition: always
+    owner: the ML team
+    cost: none
+    caveat: >-
+      A sum-based aggregate scales with the size of the set, so the same metric over two
+      different sets is two quantities under one name — and not comparable.
+    evidence: "`perturbation_set` populated on the result"
+
+reporting.distance_as_robustness:
+  - action: Move the distribution distance out of the robustness scores
+    precondition: always
+    owner: whoever writes the report
+    cost: none
+    caveat: >-
+      A distance says the data moved. It says nothing about whether the model still
+      works: a large shift in an ignored feature costs nothing, and a small shift in a
+      load-bearing one can be fatal.
+    evidence: the distance in the report's `distances` section instead
+
+reporting.coverage_without_width:
+  - action: Report the mean interval width, or the interval score
+    precondition: always
+    owner: whoever writes the report
+    cost: none
+    caveat: >-
+      Coverage alone is trivially satisfiable — an interval from minus infinity to
+      infinity covers everything.
+    evidence: both metrics present
+
+reporting.threshold_metric_without_threshold:
+  - action: Record the operating point the metric was computed at
+    precondition: always
+    owner: the ML team
+    cost: none
+    caveat: >-
+      The metric is a property of a threshold, not of a model. Without it the number
+      cannot be reproduced or compared with anyone else's.
+    evidence: the threshold or target rate in the evaluation's metadata

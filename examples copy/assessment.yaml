@@ -1,0 +1,62 @@
+# A complete assessment config, with every section filled in.
+#
+# Every field is optional: delete anything you do not need and the library's default
+# applies. A misspelt key is an error rather than a silent default, so this file cannot
+# quietly disagree with the run it produced.
+#
+#   from themis_assess import load_config
+#   config = load_config("examples/assessment.yaml")
+
+model_name: example_classifier
+
+# Facts about the run that the library cannot discover and a reader will want. Copied
+# verbatim into the report's `context` section.
+context:
+  split: random holdout, 2/3 train
+  owner: whoever signs off on the deployment
+  data_vintage: "2026-08"
+
+accuracy:
+  # Omit `metrics` to compute everything the handler's access level supports.
+  metrics: [accuracy, balanced_accuracy, auc, f1, expected_calibration_error]
+  per_class: true
+  diagnose_outliers: true      # are the errors concentrated on unusual inputs?
+  diagnose_ambiguity: true     # does the model's own uncertainty find its errors?
+
+  # The thresholds. These are the part of the file that matters: survey §8 makes the
+  # acceptance bar a property of the deployment, so it belongs somewhere reviewable and
+  # attributable rather than in a call. `rationale` is not decoration — it is what a
+  # future reader needs in order to argue with the number.
+  source: example, not a real sign-off
+  criteria:
+    - metric: balanced_accuracy
+      acceptable: 0.85
+      rationale: below this the review queue is longer than anyone can staff
+      critical: true
+    - metric: expected_calibration_error
+      acceptable: 0.05
+      rationale: the score is shown to a human as a probability
+      critical: false
+
+robustness:
+  perturbations: [gaussian_noise, uniform_bias, missing_values]
+  severities: [1, 2, 3, 4, 5]
+  n_variants: 3
+  seed: 0
+
+  # Name this. Two robustness scores over different underlying metrics are not
+  # comparable, and the default is a convenience rather than a choice anyone made.
+  accuracy_metric: balanced_accuracy
+
+  # The degradation tolerance — the one element no evaluation instrument can supply.
+  # Its absence is visible: with no criteria the verdict is "not checked", never a pass.
+  criteria:
+    - metric: relative_robustness
+      acceptable: 0.9
+      basis: worst_cell
+      rationale: severity 5 is inside a year of ordinary sensor drift
+      critical: true
+
+report:
+  output: reports/example.json
+  glossary: true

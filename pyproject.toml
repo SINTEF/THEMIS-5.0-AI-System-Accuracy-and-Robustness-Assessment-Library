@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "themis-assess"
+version = "0.12.0"
+description = "Accuracy and robustness assessment for classification and forecasting models"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "SINTEF Digital, Department of Mathematics and Cybernetics" },
+]
+keywords = ["robustness", "distribution shift", "model evaluation", "forecasting", "classification"]
+
+# Core stays deliberately small: no darts, no torch, no safetycage.
+# Anything heavier is an extra and is imported lazily by the module that needs it.
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "scipy>=1.11",
+    "plotly>=5.20",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+timeseries = ["darts>=0.39", "statsmodels>=0.14"]
+text = ["transformers>=4.40", "textattack>=0.3.10"]
+explain = ["tsfresh>=0.20", "xgboost>=2.0", "shap>=0.45"]
+safetycage = ["safetycage>=0.0.62"]
+mpl = ["matplotlib>=3.8"]
+# For docs/tutorial.ipynb. nbformat and nbclient are only needed to *rebuild* the
+# notebook with docs/build_tutorial.py, which executes every cell.
+tutorial = ["jupyter>=1.0", "nbformat>=5.9", "nbclient>=0.9"]
+# `dev` is an extra rather than a PEP 735 dependency-group on purpose. A group is the
+# tidier home for test tooling, but it is only reachable as `pip install --group dev`,
+# which needs pip 25.1 or newer — and `pip install -e ".[dev]"`, which is what everyone
+# types and what this repo's README and CI both said, silently installs *neither* pytest
+# nor ruff against a group, with only a warning nobody reads. Correctness of the
+# documented command beats packaging taste.
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/themis_assess"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# So that `pytest` runs against src/ with the package not installed at all. That is
+# what makes the "explore it in your own environment" path work: pip install
+# -r requirements-dev.txt, then pytest, and nothing has been installed that you would
+# then have to reinstall after editing.
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# __all__ in the metric modules is grouped by the survey section that defines each
+# metric, which is more informative to a reader than alphabetical order.
+ignore = ["RUF022"]
+
+[tool.ruff.lint.per-file-ignores]
+# An optional-dependency test must call pytest.importorskip before importing the module
+# under test, so its imports cannot be at the top of the file.
+"tests/integrations/*" = ["E402"]
