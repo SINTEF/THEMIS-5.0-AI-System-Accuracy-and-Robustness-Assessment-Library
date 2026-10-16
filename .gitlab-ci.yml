@@ -1,0 +1,117 @@
+stages:
+  - test
+
+# The gate. Must stay green.
+unit_tests:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install --quiet -e ".[dev]"
+  script:
+    - pytest tests/ --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    expire_in: 1 week
+
+# The same suite with the package NOT installed, only its dependencies. This is what
+# keeps the "explore it in your own conda or venv environment" path working: pyproject
+# puts src/ on the test path, so nothing needs installing. Without this job the setting
+# is one careless edit away from silently breaking, and the only people who would notice
+# are the ones who never install the package — so they would notice last.
+unit_tests_without_install:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install --quiet -r requirements-dev.txt
+  script:
+    - python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('themis_assess') is None else 'the package is installed; this job is meant to run without it')"
+    - pytest tests/
+
+# numpy 1.26 as well as the current release. The floor in pyproject.toml claims
+# numpy>=1.26, and the numpy 2 migration changed enough behaviour that the claim has to
+# be proved rather than asserted.
+unit_tests_numpy_126:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install --quiet -e ".[dev]"
+    - pip install --quiet "numpy==1.26.*"
+  script:
+    - python -c "import numpy; print('numpy', numpy.__version__)"
+    - pytest tests/
+
+lint:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install --quiet ruff
+  script:
+    - ruff check src tests tools
+
+# The requirements files are generated from pyproject.toml. tests/test_requirements.py
+# also covers this, but a dedicated job says *what* is wrong in one line rather than in
+# a test failure, and runs without installing anything.
+requirements_in_sync:
+  stage: test
+  image: python:3.11
+  script:
+    - python tools/sync_requirements.py --check
+
+# The conda path, actually executed. This is the job that should have existed sooner:
+# environment.yml went through three revisions, two of them broken, and every one of
+# those breakages was found by a person running the file by hand rather than by a check.
+#
+# micromamba rather than conda: it is a single small binary that reads the same
+# environment.yml and installs from the same conda-forge, so a job costs seconds instead
+# of the minutes a full Miniconda install would. It is a different implementation of the
+# same solver conda now uses, so it catches structural mistakes — illegal syntax, a
+# package missing from conda-forge, an install flow that does not work — but it is not
+# proof about conda itself.
+#
+# What this cannot catch: a network that truncates downloads. CI has a clean connection,
+# so the `IncompleteRead` failure that motivated the current design will never reproduce
+# here. That one belongs to the institution's proxy, not to this repository.
+#
+# `micromamba run -n` is used rather than activating a shell, because activation needs a
+# shell hook that GitLab's non-interactive runner does not set up.
+conda_environment:
+  stage: test
+  image:
+    name: mambaorg/micromamba:2.9-ubuntu24.04
+    # GitLab has to run its own shell; the image's entrypoint is an activation wrapper.
+    entrypoint: [""]
+  variables:
+    # Somewhere writable regardless of which user the runner gives us.
+    MAMBA_ROOT_PREFIX: /tmp/mamba
+  before_script:
+    - micromamba --version
+  script:
+    # 1. the file itself: does it parse, and does conda-forge have everything in it?
+    - micromamba create -y -f environment.yml
+    # 2. the documented follow-up. --no-build-isolation is the whole point: hatchling and
+    #    editables come from the environment above, so this touches no index at all.
+    - micromamba run -n themis-assess pip install -e . --no-deps --no-build-isolation --no-index
+    # 3. the link works from a directory that is not the repository root
+    - cd /tmp && micromamba run -n themis-assess python -c "import themis_assess as t; print(t.__version__, t.__file__)"
+    # 4. and the environment can do the two things the README promises of it
+    - cd $CI_PROJECT_DIR && micromamba run -n themis-assess python -m pytest tests/
+    - micromamba run -n themis-assess python -c "import jupyter, nbformat, nbclient; print('notebook tooling present')"
+
+# The tutorial, executed. It uses only the core dependencies and a dataset that ships
+# with scikit-learn, so unlike the pre-restructure notebooks it needs no use-case data
+# and is a real gate: if a cell raises, the documentation is wrong.
+tutorial:
+  stage: test
+  image: python:3.11
+  before_script:
+    - pip install --quiet -e ".[tutorial]"
+    - pip install --quiet nbmake pytest
+  script:
+    - pytest --nbmake docs/tutorial.ipynb
+  artifacts:
+    when: always
+    paths:
+      - "docs/tutorial.ipynb"
+    expire_in: 1 week

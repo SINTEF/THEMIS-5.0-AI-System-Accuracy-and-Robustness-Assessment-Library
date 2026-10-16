@@ -1,4 +1,4 @@
-# THEMIS 5.0 Accuracy and Robustness Assessment Library
+# THEMIS 5.0 AI System Accuracy and Robustness Assessment Library
 
 Accuracy and robustness assessment for classification and forecasting models.
 
@@ -12,12 +12,16 @@ can be assessed — scikit-learn, LightGBM, a time series forecaster, a transfor
 endpoint behind a function. Nothing in the core depends on any packages; those are extras, imported lazily by the one module that
 needs them.
 
+This repository is created as a result of the project THEMIS 5.0 (Human-centered Trustworthiness Optimisation in Hybrid Decision Support) 
+funded by the Horizon Europe program (2023-2026).
+The methods included in this repository is a result of separate assessments of three AI systems within different domains; medicine, media, and port.
+See https://www.themis-trust.eu/projects for more information. 
 The methodology follows Michałowska & Johnsen, *Evaluating Machine Learning Robustness
 Under Natural Distribution Shifts* (SINTEF Digital, 2026), referred to throughout the
 code as "the survey". Every metric records the survey section and equation it comes from,
 so the implementation and the paper cannot drift apart without a test noticing.
 
-Note: This code base was orchestrated with Claude Opus 5.0, and was created based on the separate
+Note: This code base was orchestrated with Claude Opus 5, and was created based on the separate
 accuracy and robustness assessments of the three AI system use cases explored during the THEMIS 5.0 project
 funded by the Horizon Europe program between 2023 and 2026. The code base includes all methods that were applied
 for these three use cases, with the aim and purpose that this code base can be valuable no matter what type of
@@ -160,7 +164,7 @@ If the plotly figures come out blank, that is a Jupyter renderer issue rather th
 library one: `import plotly.io as pio; pio.renderers.default = "notebook"` in the first
 cell usually settles it, and `figure.write_html("out.html")` always works.
 
-## Five minutes
+## The framework described in a few lines of code
 
 This is the whole library in one screen. It runs as written — the data ships with
 scikit-learn, so there is nothing to download.
@@ -233,7 +237,7 @@ fails.
 
 `docs/tutorial.ipynb` walks the same dataset through every layer, with the plots.
 
-## The seven things it does
+## The seven things the framework does
 
 | | What you get | Entry point |
 |---|---|---|
@@ -787,15 +791,15 @@ says otherwise.
 
 ## Where each capability came from
 
-This library consolidates four repositories that had drifted apart. Every ported symbol
+This library consolidates three repositories that had drifted apart as each repository assessed a different AI system. Every ported symbol
 records its origin in a docstring line, so provenance survives.
 
 | Source | Domain | What came from it |
 |---|---|---|
 | `themis-accuracy-robustness` (this repo, `main`) | generic | the perturbation and metric skeleton, `Metrics_list.yaml` (now `metrics/glossary.py`) |
-| `themis_valencia` | vessel berthing, forecasting (TSMixer/darts) | `MetricRegistry`, `normalize_metric`, the forecasting accuracy assessment, accuracy over time, Welch's ANOVA over groups, the time × feature heatmap |
-| `themis_medical` | Plovdiv clinical, tabular (LightGBM) | outlier-error analysis, error by feature bin, error analysis by true class, the metrics table |
-| `themis_media` | fake news and hate speech, text (RoBERTa) | text perturbations, the ambiguity threshold, confidence retention, the polar chart, calibration under shift |
+| `themis_valencia` | Vessel berthing at Valencia Port, forecasting (TSMixer/darts) | `MetricRegistry`, `normalize_metric`, the forecasting accuracy assessment, accuracy over time, Welch's ANOVA over groups, the time × feature heatmap |
+| `themis_medical` | Pancreatic Cancer risk prediction at the Medical University of Plovdiv, tabular (LightGBM) | outlier-error analysis, error by feature bin, error analysis by true class, the metrics table |
+| `themis_media` | Fake news and hate speech detection, text (RoBERTa) | text perturbations, the ambiguity threshold, confidence retention, the polar chart, calibration under shift |
 
 Six capabilities were recovered that had been computed and then not returned — per-class
 error rates behind a commented-out print, the outlier chi-square test, a formatted metrics
@@ -833,28 +837,9 @@ once wrong; the docstring says which, so nobody removes the test as redundant.
 `docs/DECISIONS.md` records every design decision, D1 to D60, with the alternative that
 was rejected and why. It is the authority where it disagrees with anything else.
 
-## If something looks wrong
+## If something looks wrong or could be approved
 
-It might be. Some of the corrections in this library came from someone reading a number
-and finding it implausible, so that is a productive instinct — here is how to act on it.
-
-1. **Read the finding's evidence.** Every finding names the numbers it rests on. If they
-   do not support the headline, the rule is wrong: `report/findings.py`, one function per
-   generator, each threshold visible in the signature.
-2. **Check the metric's semantics.** `describe_metric("the_metric")` gives the direction,
-   the bounds, the ideal value and the survey equation. A number that seems inverted
-   usually is: `higher_is_better` reaching a comparison the wrong way round is the single
-   most common defect this library has had, and it has been found five times.
-3. **Check what the run actually did.** `plan()` on either evaluator reports the metrics,
-   the perturbations, the severities, and the model-call count. `SweepResult.seed` plus
-   `core/seeding.py` lets you re-run one cell of a sweep in isolation and get the same
-   number back.
-4. **Look at the layer boundary.** Analysis lives in `metrics/` and `assessment/`;
-   `viz/` only draws. If a plot shows something the numbers do not, the bug is in one of
-   them and the boundary tells you which.
-5. **Write the failing test first.** `tests/` mirrors `src/` directory for directory. A
-   test that fails for the right reason is the fastest possible bug report, and if you are
-   right the fix is usually one line.
+Users are welcome to report in "Issues" at this repository.
 
 ## Documents in this repository
 
@@ -870,7 +855,7 @@ and finding it implausible, so that is a productive instinct — here is how to 
 ---
 
 If this assessment supports a published result, cite the survey as well as the code — the
-metrics are its, and the equation numbers in the docstrings are how a reader gets from a
+metrics and the equation numbers in the docstrings are how a reader gets from a
 number in a report back to its definition.
 
 > Michałowska, K. & Johnsen, P. (2026). *Evaluating Machine Learning Robustness Under
