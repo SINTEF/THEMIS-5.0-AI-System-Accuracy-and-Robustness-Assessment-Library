@@ -14,18 +14,17 @@ needs them.
 
 This repository is created as a result of the project THEMIS 5.0 (Human-centered Trustworthiness Optimisation in Hybrid Decision Support) 
 funded by the Horizon Europe program (2023-2026).
-The methods included in this repository is a result of separate assessments of three AI systems within different domains; medicine, media, and port.
+The methods included in this repository is a result of separate assessments of three AI systems within different domains; health care, news media, and port logistics.
 See https://www.themis-trust.eu/projects for more information. 
-The methodology follows Michałowska & Johnsen, *Evaluating Machine Learning Robustness
-Under Natural Distribution Shifts* (SINTEF Digital, 2026), referred to throughout the
-code as "the survey". Every metric records the survey section and equation it comes from,
-so the implementation and the paper cannot drift apart without a test noticing.
+The methodology follows [Michałowska & Johnsen, *Evaluating Machine Learning Robustness
+Under Natural Distribution Shifts* (SINTEF Digital, 2026)](https://www.researchgate.net/publication/410991476_Evaluating_Machine_Learning_Robustness_Under_Natural_Distribution_Shifts_A_Survey_of_Benchmarks_Perturbations_Metrics_and_Assumptions?channel=doi&linkId=6a6af068f475b23f400f1ffc&showFulltext=true), referred to throughout the
+code as "the survey". 
 
-Note: This code base was orchestrated with Claude Opus 5, and was created based on the separate
+Note: This code base was orchestrated using Claude Opus 5, and was created based on the separate
 accuracy and robustness assessments of the three AI system use cases explored during the THEMIS 5.0 project
-funded by the Horizon Europe program between 2023 and 2026. The code base includes all methods that were applied
+funded by the Horizon Europe program between 2023 and 2026. The code base is for most parts reviewed, and edited where needed. The code base may - using help of SWE AI agents or not - include errors, or needs improvement or clarifications. We encourage users to create an "Issue" in this case. The code base includes all methods that were applied
 for these three use cases, with the aim and purpose that this code base can be valuable no matter what type of
-AI system that is investigated.
+AI system that is investigated. Note that the code base for now only includes analysis for classification and forecasting tasks. Assessments for tasks with continuous outcomes/dependent variables (classical regression) or counting outcomes (Poisson regression) are not yet taken into account, and so errors may occurs for this type of tasks when using the code base.
 
 ---
 
@@ -33,8 +32,8 @@ AI system that is investigated.
 
 - [Install](#install)
 - [Running the tutorial notebook](#running-the-tutorial-notebook)
-- [Five minutes](#five-minutes)
-- [The seven things it does](#the-seven-things-it-does)
+- [The framework described in a few lines of code](#the-framework-described-in-a-few-lines-of-code)
+- [The seven things the framework does](#the-seven-things-the-framework-does)
 - [Three levels: global, group, individual](#three-levels-global-group-individual)
 - [Architecture: the layers and what each is for](#architecture-the-layers-and-what-each-is-for)
 - [Where to find what](#where-to-find-what)
@@ -261,9 +260,9 @@ Below is a table which summarizes the different methods available for each of th
 
 | Level | Accuracy | Robustness |
 |---|---|---|
-| **Global** — the whole test set, one number for the model | point metrics on held-out data; calibration and proper scoring rules (§5.4); comparison against a baseline model; acceptance thresholds, which the survey makes a property of the deployment and not of the model (§8) | the severity sweep over synthetic perturbations (§5.1.3); domain-level shift between two splits (§5.1.1); composite indices (§5.1.4); distribution distance, as context and never as a score (§5.3); detector evaluation (§5.5); a degradation tolerance (§8) |
-| **Group** — a named partition: subgroup, class, bin, window | subgroup breakdown and disparity (§5.1.2); per-class breakdown and confusion analysis; error rate by feature bin; accuracy over time and by forecast horizon; significance testing of a group gap — the inferential counterpart to §5.1.2's descriptive measures; reliability by confidence bin (§5.4) | degradation curves per perturbation and per severity (§5.1.3); sensitivity mapping over feature × severity and feature × time; subgroup degradation (§5.1.2); a tolerance read at the worst perturbation or the worst cell (§8); the split protocols that define the partitions (§3.1) |
-| **Individual** — one prediction | outlier and novelty scoring, with the error rate of the flagged samples; predictive uncertainty and ambiguity flagging; per-sample error; local attribution from a surrogate error model | per-sample perturbation — every row perturbed, at every severity; prediction stability and flip analysis (§5.1.3); confidence retention |
+| **Global** — the whole test set, one number for the model | point metrics on held-out data ([Rainio et al.](https://www.nature.com/articles/s41598-024-56706-x)); calibration and proper scoring rules (§5.4); Performance comparison of AI models using polar charts with normalized metrics; acceptance thresholds, which the survey makes a property of the deployment and not of the model (§8) | the severity sweep over synthetic perturbations (§5.1.3); domain-level shift between two splits (§5.1.1); composite indices (§5.1.4); distribution distance, as context and never as a score (§5.3); detector evaluation (§5.5); a degradation tolerance (§8) |
+| **Group** — a named partition: subgroup, class, bin, window | subgroup breakdown and disparity (§5.1.2); per-class breakdown and confusion matrices; error rate by feature bin; accuracy over time and by forecast horizon; significance testing of a group gap — the inferential counterpart to §5.1.2's descriptive measures; reliability by confidence bin (§5.4) | degradation curves per perturbation and per severity (§5.1.3); sensitivity mapping over feature × severity and feature × time; subgroup degradation (§5.1.2); a tolerance read at the worst perturbation or the worst cell (§8); the split protocols that define the partitions (§3.1) |
+| **Individual** — one prediction | outlier and novelty scoring ([Sikder and Batarseh](https://arxiv.org/pdf/2112.00588)), with the error rate of the flagged samples; predictive uncertainty and ambiguity flagging; per-sample error; local attribution from a surrogate error model, misclassification detection ([Johnsen et al.](https://ceur-ws.org/Vol-4132/short41.pdf)) | per-sample perturbation — every row perturbed, at every severity; prediction stability and flip analysis (§5.1.3) |
 
 For the entry point behind each method, see [Where to find what](#where-to-find-what).
 
