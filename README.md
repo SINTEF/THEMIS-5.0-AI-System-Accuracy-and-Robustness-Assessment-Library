@@ -124,7 +124,7 @@ dependencies drift, the drift is silent, and the day one is bumped and the other
 the conda user and the pip user are running different libraries with nothing to say so.
 
 The extras stay commented out in `requirements-optional.txt` on purpose: each pulls in a
-substantial dependency tree, and `darts` and `safetycage` have transitive pins that may
+substantial dependency tree, and [`Darts`](https://unit8co.github.io/darts/) and `safetycage` have transitive pins that may
 not co-exist in one environment. Uncomment what you need, or install one directly:
 
 ```bash
@@ -437,7 +437,7 @@ figure.
 | You want to… | Go to |
 |---|---|
 | assess a scikit-learn classifier | `SklearnHandler` + `AccuracyEvaluator` |
-| assess a darts forecaster | `handlers/forecasting.py`, `integrations/darts_adapter.py` |
+| assess a [Darts](https://unit8co.github.io/darts/) forecaster | `handlers/forecasting.py`, `integrations/darts_adapter.py` |
 | assess something else entirely | subclass `BaseHandler` — see [extending](#a-new-model-type) |
 | know what a metric means | `metrics/glossary.py`, or `describe_metric("mae")` |
 | know which direction is better | `default_registry().get("mae").higher_is_better` |
@@ -796,7 +796,7 @@ records its origin in a docstring line, so provenance survives.
 | Source | Domain | What came from it |
 |---|---|---|
 | `themis-accuracy-robustness` (this repo, `main`) | generic | the perturbation and metric skeleton, `Metrics_list.yaml` (now `metrics/glossary.py`) |
-| `themis_valencia` | Vessel berthing at Valencia Port, forecasting (TSMixer/darts) | `MetricRegistry`, `normalize_metric`, the forecasting accuracy assessment, accuracy over time, Welch's ANOVA over groups, the time × feature heatmap |
+| `themis_valencia` | Vessel berthing at Valencia Port, forecasting (TSMixer/[Darts](https://unit8co.github.io/darts/)) | `MetricRegistry`, `normalize_metric`, the forecasting accuracy assessment, accuracy over time, Welch's ANOVA over groups, the time × feature heatmap |
 | `themis_medical` | Pancreatic Cancer risk prediction at the Medical University of Plovdiv, tabular (LightGBM) | outlier-error analysis, error by feature bin, error analysis by true class, the metrics table |
 | `themis_media` | Fake news and hate speech detection, text (RoBERTa) | text perturbations, the ambiguity threshold, confidence retention, the polar chart, calibration under shift |
 
