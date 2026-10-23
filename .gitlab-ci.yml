@@ -4,7 +4,7 @@ stages:
 # The gate. Must stay green.
 unit_tests:
   stage: test
-  image: python:3.11
+  image: python:3.13
   before_script:
     - pip install --quiet -e ".[dev]"
   script:
@@ -22,7 +22,7 @@ unit_tests:
 # are the ones who never install the package — so they would notice last.
 unit_tests_without_install:
   stage: test
-  image: python:3.11
+  image: python:3.13
   before_script:
     - pip install --quiet -r requirements-dev.txt
   script:
@@ -34,7 +34,7 @@ unit_tests_without_install:
 # be proved rather than asserted.
 unit_tests_numpy_126:
   stage: test
-  image: python:3.11
+  image: python:3.13
   before_script:
     - pip install --quiet -e ".[dev]"
     - pip install --quiet "numpy==1.26.*"
@@ -44,7 +44,7 @@ unit_tests_numpy_126:
 
 lint:
   stage: test
-  image: python:3.11
+  image: python:3.13
   before_script:
     - pip install --quiet ruff
   script:
@@ -55,7 +55,7 @@ lint:
 # a test failure, and runs without installing anything.
 requirements_in_sync:
   stage: test
-  image: python:3.11
+  image: python:3.13
   script:
     - python tools/sync_requirements.py --check
 
@@ -104,7 +104,7 @@ conda_environment:
 # and is a real gate: if a cell raises, the documentation is wrong.
 tutorial:
   stage: test
-  image: python:3.11
+  image: python:3.13
   before_script:
     - pip install --quiet -e ".[tutorial]"
     - pip install --quiet nbmake pytest
