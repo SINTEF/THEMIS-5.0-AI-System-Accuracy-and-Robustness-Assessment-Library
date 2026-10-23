@@ -50,9 +50,9 @@ AI system that is investigated. Note that the code base for now only includes an
 
 ## Install
 
-Python 3.11 or newer. The version floor is deliberate: it is what lets the type
-annotations stay readable without a compatibility shim, and it is old enough by now that
-nothing is excluded by it.
+Python 3.13 or newer. The version floor is set by the optional `safetycage` dependency,
+which only supports 3.13 and up; keeping the whole project on one floor means every extra
+installs cleanly in the same environment.
 
 ### Three ways to work with the code
 

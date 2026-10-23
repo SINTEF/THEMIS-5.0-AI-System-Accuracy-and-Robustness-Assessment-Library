@@ -9,6 +9,12 @@
 
 -r requirements.txt
 
+ipykernel>=7.4.0
 jupyter>=1.0
+matplotlib>=3.11.2
 nbclient>=0.9
 nbformat>=5.9
+safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
+statsmodels>=0.15.0
+torch>=2.14.1
+tqdm>=4.70.1

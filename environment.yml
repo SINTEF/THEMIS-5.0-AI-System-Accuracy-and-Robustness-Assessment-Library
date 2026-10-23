@@ -21,7 +21,7 @@ name: themis-assess
 channels:
   - conda-forge
 dependencies:
-  - python>=3.11
+  - python>=3.13
   - pip
   - numpy>=1.26
   - pandas>=2.2
@@ -33,6 +33,12 @@ dependencies:
   - pytest-cov>=5.0
   - ruff>=0.6
   - jupyter>=1.0
+  - ipykernel>=7.4.0
+  - matplotlib>=3.11.2
+  - torch>=2.14.1
+  - safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
+  - statsmodels>=0.15.0
+  - tqdm>=4.70.1
   - nbformat>=5.9
   - nbclient>=0.9
   - hatchling

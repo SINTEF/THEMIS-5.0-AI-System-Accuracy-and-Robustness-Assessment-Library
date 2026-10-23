@@ -20,10 +20,11 @@
 # shap>=0.45
 
 # [mpl] — matplotlib, for the partial-dependence path only
-# matplotlib>=3.8
+# matplotlib>=3.11.2
 
 # [safetycage] — model-centric robustness metrics (survey §5.2)
-# safetycage>=0.0.62
+# safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
+# statsmodels>=0.15.0
 
 # [text] — text perturbations (character noise, token masking, word dropout)
 # transformers>=4.40

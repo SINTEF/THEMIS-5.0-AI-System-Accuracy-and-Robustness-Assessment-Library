@@ -7,7 +7,7 @@ name = "themis-assess"
 version = "0.12.0"
 description = "Accuracy and robustness assessment for classification and forecasting models"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 authors = [
     { name = "SINTEF Digital, Department of Mathematics and Cybernetics" },
 ]
@@ -28,11 +28,22 @@ dependencies = [
 timeseries = ["darts>=0.39", "statsmodels>=0.14"]
 text = ["transformers>=4.40", "textattack>=0.3.10"]
 explain = ["tsfresh>=0.20", "xgboost>=2.0", "shap>=0.45"]
-safetycage = ["safetycage>=0.0.62"]
-mpl = ["matplotlib>=3.8"]
-# For docs/tutorial.ipynb. nbformat and nbclient are only needed to *rebuild* the
-# notebook with docs/build_tutorial.py, which executes every cell.
-tutorial = ["jupyter>=1.0", "nbformat>=5.9", "nbclient>=0.9"]
+# statsmodels is also pulled in by safetycage[spardacus]; listed for its version floor.
+safetycage = ["safetycage[torch,red,spardacus,mahalanobis]>=0.0.67", "statsmodels>=0.15.0"]
+mpl = ["matplotlib>=3.11.2"]
+# For docs/tutorial.ipynb and docs/safetycage_tutorial.ipynb. nbformat and nbclient are
+# only needed to *rebuild* the notebook with docs/build_tutorial.py, which executes every cell.
+tutorial = [
+    "jupyter>=1.0",
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "torch>=2.14.1",
+    "safetycage[torch,red,spardacus,mahalanobis]>=0.0.67",
+    "statsmodels>=0.15.0",     # for SPARDACUS
+    "tqdm>=4.70.1",
+    "nbformat>=5.9",
+    "nbclient>=0.9",
+]
 # `dev` is an extra rather than a PEP 735 dependency-group on purpose. A group is the
 # tidier home for test tooling, but it is only reachable as `pip install --group dev`,
 # which needs pip 25.1 or newer — and `pip install -e ".[dev]"`, which is what everyone
@@ -55,7 +66,7 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 # __all__ in the metric modules is grouped by the survey section that defines each

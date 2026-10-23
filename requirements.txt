@@ -5,7 +5,7 @@
 
 # The core runtime. Deliberately small: no darts, no torch, no
 # transformers, no safetycage. Everything heavier is optional and is
-# imported lazily by the one module that needs it. Python >=3.11.
+# imported lazily by the one module that needs it. Python >=3.13.
 
 numpy>=1.26
 pandas>=2.2

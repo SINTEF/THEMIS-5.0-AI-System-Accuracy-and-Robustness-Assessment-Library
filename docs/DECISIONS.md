@@ -42,6 +42,8 @@ decision and no PyPI naming needed this round.
 **D7 — Python floor: `>=3.11`.** The governing principle stated with the answer: *repo A should be as
 flexible as possible and must not depend on any specific package such as darts or safetycage.* This rules
 out `>=3.13` (which `safetycage` would force) and drives D8–D10.
+*Superseded 2026-10-23: floor raised to `>=3.13` so that the `[safetycage]` extra (`safetycage>=0.0.62`
+requires 3.13) resolves under the project's declared Python range. safetycage itself stays optional.*
 
 **D8 — Core dependencies.** `numpy`, `pandas`, `scikit-learn`, `plotly`, `pyyaml`. **Note the swap:
 plotly is core, matplotlib is not.**
