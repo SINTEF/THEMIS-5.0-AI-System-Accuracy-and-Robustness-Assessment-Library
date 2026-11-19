@@ -30,7 +30,7 @@ model/
 plots/
 
 # Note: `notebooks/` was ignored in the pre-restructure layout. The tutorial lives in
-# docs/tutorial.ipynb and is tracked; anything under notebooks/ is scratch.
+# docs/tutorial_classification.ipynb and is tracked; anything under notebooks/ is scratch.
 notebooks/
 .ipynb_checkpoints/
 
@@ -45,3 +45,9 @@ notebooks/
 .idea/
 .vscode/
 .DS_Store
+
+# the exported tutorial site. Built from the committed notebooks by
+# tools/build_docs_site.py and published by CI; never committed, because it is a
+# derivative of files already in the repository.
+site/
+public/

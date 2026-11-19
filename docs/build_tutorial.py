@@ -1,11 +1,11 @@
-"""Build (and execute) docs/tutorial.ipynb.
+"""Build (and execute) docs/tutorial_classification.ipynb.
 
 The notebook is generated from this file rather than hand-edited, so that its code is
 executed on every rebuild and cannot drift from the library. Run:
 
     python docs/build_tutorial.py
 
-It writes ``docs/tutorial.ipynb`` with outputs, and fails loudly if any cell raises.
+It writes ``docs/tutorial_classification.ipynb`` with outputs, and fails loudly if any cell raises.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ If that fights your existing environment, a notebook-specific one is quick:
 ```bash
 python -m venv .venv-tutorial
 .venv-tutorial/bin/pip install -e . jupyter
-.venv-tutorial/bin/jupyter notebook docs/tutorial.ipynb
+.venv-tutorial/bin/jupyter notebook docs/tutorial_classification.ipynb
 ```
 """
 )
@@ -1636,7 +1636,7 @@ def build() -> int:
         },
         "language_info": {"name": "python", "version": sys.version.split()[0]},
     }
-    target = HERE / "tutorial.ipynb"
+    target = HERE / "tutorial_classification.ipynb"
 
     if "--no-execute" not in sys.argv:
         from nbclient import NotebookClient

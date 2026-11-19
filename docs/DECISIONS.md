@@ -670,7 +670,7 @@ name lookup and the only way to reach a custom perturbation was to sweep the who
 registry. `RobustnessAssessor` gained `perturbation_registry=`, which is where names are
 resolved when given. Passing two registries raises rather than one silently winning.
 
-**D57 — The tutorial is generated and executed, not hand-written.** `docs/tutorial.ipynb`
+**D57 — The tutorial is generated and executed, not hand-written.** `docs/tutorial_classification.ipynb`
 is built by `docs/build_tutorial.py`, which executes every cell and fails loudly on any
 exception, so the notebook cannot drift from the library. Writing it also caught four places
 where the narrative asserted something the output contradicted — the surrogate refusing
@@ -901,6 +901,109 @@ reasons (no package, no daemon, nothing pulled) rather than raising. Falling bac
 unexpected model is safe precisely because its output is verified before it is trusted:
 the cost of guessing wrong is a rejected narrative, not a wrong one.
 
+## Decisions taken while building the forecasting tutorial (D69-D73)
+
+The library claimed both task types and documented one. The counterpart was built on
+darts' `ElectricityDataset`, generated and executed by `docs/build_forecasting_tutorial.py`
+under D57's rule. Five decisions came out of building it, and all five are things a reader
+of the notebook would otherwise have to reconstruct.
+
+> **That notebook was retired on 2026-11-19** and the forecasting tutorial is now the
+> solar one (D76, D77). The task it posed — next-step electricity load from past load —
+> was a forecasting *exercise* rather than a forecasting *problem*: nothing downstream
+> depended on the answer, so none of the library's verdicts had a reader. D69–D73 below
+> are unaffected; every one of them was carried into the solar tutorial, which is why
+> they are recorded here as decisions rather than as notes on a deleted file. The builder
+> survives, untracked, and now writes `forecasting_tutorial_electricity.ipynb` so that it
+> cannot overwrite the notebook that took its old path.
+
+**D69 — one entity per *window*, not per series.** The library's entity axis is
+`n_entities`, and a forecasting dataset invites spending it on the wrong thing. Treating
+each of the eight clients as an entity gives eight rows: a perturbation sweep over eight
+samples is noise, `ErrorModel` has nothing to fit, and the subgroup layer has no
+partition to make. Cutting the test period into fixed windows and letting **each window be
+an entity** — `(n_windows, history + horizon, n_features)` — gives 186 rows, one forecast
+per window, the truth as the window's own tail, and a time axis *inside* each entity for
+`feature_time_map` to work across.
+
+The consequence is that the notebook carries two adapters and has to say why: a
+long-series `DartsAdapter` for `historical_forecasts`, which needs a continuous timeline,
+and the windowed `ArrayAdapter` for everything that needs many entities. Nothing in the
+library forces this choice, and nothing warns when it is made badly, which is the argument
+for recording it here.
+
+**D70 — the quantile grid is pinned by three constraints, two of them from the library.**
+The levels are `[0.05, 0.20, 0.35, 0.50, 0.65, 0.80, 0.95]`, and that is the smallest grid
+satisfying all three: the outer pair must be 0.05/0.95 because the registry declares
+`prediction_interval_coverage` best at `target=0.9` and a requirement checked against a
+90% target must measure a 90% interval; the spacing must be even because the CRPS and
+energy-score estimators read the levels as an equally weighted ensemble; and 0.5 must be
+present because the median is the point forecast. Two earlier grids failed — ten evenly
+spaced levels from 0.05 contain no 0.5, and five levels at 0.1–0.9 measure an 80%
+interval against a 90% target.
+
+Also recorded because it cost an hour: **darts' `likelihood="quantile"` fits scikit-learn's
+`QuantileRegressor`**, a linear program per quantile per output step. At 168 lags over 5
+components — 840 features — it did not finish. `HistGradientBoostingRegressor(loss=
+"quantile")` with `multi_models=False` fits the same grid in about 25 seconds.
+`multi_models=False` needs `lags + horizon - 1` history rather than `lags`, which is what
+sets the window length everything else is cut to.
+
+**D71 — the model carries an imputer because the perturbations require it.**
+`missing_segment` and `flat_sensor` hand the model `NaN`. A bare regressor refuses it, and
+`RobustnessEvaluator` then stops the sweep with a message that names the only two honest
+options: fix the model, or drop the perturbation and accept that the robustness score no
+longer covers it. Dropping it is what overstates robustness, so the model gets a median
+imputer in a pipeline. This is the forecasting twin of the obstacle the classification
+tutorial hits in its §10.
+
+**D72 — a tolerance over an error metric must name the error family.** `mae` is an error
+metric, so the scoring layer produces Eqs. 13–18 and refuses the accuracy family. A
+`ToleranceRequirement` naming `relative_robustness` therefore comes back **NOT CHECKED**,
+not `PASS` — and the summary surfaces the unchecked requirement rather than letting an
+overall verdict stand over it. The one to name is `error_based_robustness`. The behaviour
+is D39's and it is correct; what the tutorial adds is that it is invisible until it bites,
+which is why the notebook demonstrates it rather than quietly getting it right.
+
+**D73 — executing the notebook changed five of its claims, which is the whole argument for
+D57.** Written against the library's docstrings and the author's expectations, then run:
+
+* *The horizon curve is not monotone, and the reason is not the one the docstring
+  suggests.* It falls from 1 h to 18 h and jumps at 24 h. Not a target leak — every origin
+  is issued at the same clock time, so horizon step *h* always lands on the same hour of
+  day and the curve is as much error-by-hour as error-by-lead-time. The prose would have
+  sent a reader hunting a leak that is not there.
+* *The intervals do not balloon under shift; they narrow.* The draft warned about coverage
+  bought with width, which `sensor_drift` does do. But `missing_segment` at severity 5
+  takes coverage to 0.45 **while the width shrinks from 14.1 to 5.9** — wrong and more
+  confident about it. Coverage alone shows half of that, width alone none of it.
+* *`crps` is not skipped; it is computed, fails, and is recorded as undefined by name.* The
+  planner expects it — the handler returned `samples` — and the shape is wrong because the
+  forecast is a 24-dimensional trajectory. That it lands in `undefined` rather than as a
+  NaN or a crash is the D31 fix doing its job, and is better teaching material than the
+  skip the draft described.
+* *The test period contains two seasons, not four.* A temporal split puts the test window
+  at the end of the year. The autumn/winter gap is real, significant and **confounded**
+  with the demand level in those particular months, and the notebook now says so.
+* *The model is beaten by a 24-hour moving average* — MAE 4.76 against 2.25. Seven fitted
+  models lose to the mean of yesterday. Nothing in sections 2 through 9 could see it; only
+  the baseline comparison could, which makes it the most useful result in the notebook and
+  it is kept rather than tuned away. The model *is* the more robust of the two, which is
+  the trade the comparison layer exists to refuse to average.
+
+A sixth, smaller: the sensitivity map and the error model disagree about which client
+matters, and they are both right. Sensitivity asks what moves the forecast (`MT_001`, its
+own history); attribution asks what the bad windows have in common (`MT_005__mean`, a
+marker for high-demand periods). A reader given one of these and not the other draws the
+wrong conclusion, so the notebook now puts them side by side.
+
+**Packaging note.** `CONDA_NAMES` in `tools/sync_requirements.py` gains its first entry:
+conda-forge packages darts as **`u8darts`**, and `conda install darts` installs something
+unrelated. Nothing generated today consults it, since only core, dev and tutorial reach
+`_conda_specs` — the entry is what makes adding `[timeseries]` to a conda environment a
+one-line change rather than a silently wrong one. D60 put the indirection there for
+exactly this case and it had been empty until now.
+
 ---
 
 ## Consequences for the architecture document
@@ -920,9 +1023,172 @@ Revision 4 of `docs/ARCHITECTURE.md` will fold these in. The substantive changes
 
 ---
 
+## Decisions taken while building the solar forecasting tutorial (D74-D77)
+
+**D74 — an animation is a figure builder, and it does not score its own frames.**
+`plot_forecast_animation` plays a stack of forecasts, one per frame, against the truth
+they were scored on. It takes `annotations` — one line of text per frame — rather than a
+metric function, so the per-frame error is computed by the caller and visible in the
+notebook. The alternative, passing `mean_absolute_error` and letting the figure label
+itself, is precisely the arrangement D44 exists to prevent: an analysis reachable only
+through a plot. The y-range is fixed across frames for the same family of reason — an axis
+that rescales per frame draws a forecast that collapsed exactly like one that held, which
+is the single way an animation of this kind misleads.
+
+A later revision tried the other shape — the whole observed series as a static backdrop,
+the forecast segment moving along it to the position it was issued at, and the error curve
+growing on a second y-axis — modelled on a function one of the use cases already had. It
+was rejected on sight: at a 168-step horizon over a year of hourly data the segment is a
+sliver of the x-axis, so the thing the animation exists to show is the thing it makes too
+small to see. The relative axis keeps every frame at the same scale, which is what makes
+frames comparable to each other, and that is the comparison worth having.
+
+**D75 — the frame axis is whatever the caller stacked.** The rolling animation (one frame
+per forecast origin) and the degradation animation (one frame per severity, same window)
+are the same figure with a different stack, so there is one builder and a `frame_name`
+rather than two near-duplicates. `actual` accepts a single window and broadcasts it, which
+is what makes the severity form a one-liner.
+
+**D76 — deterministic covariates stay out of the perturbable array.** The solar model
+reads hour-of-day and day-of-year as future covariates, and they are rebuilt from the
+window's timestamps inside the handler rather than stored as columns in the adapter. A
+perturbation sweep corrupts every column it is given; "what if the calendar were wrong" is
+not a question about this deployment, and a severity curve that includes it is reporting a
+failure nobody can have. The physical inputs — generation, temperature, cloud cover,
+humidity — are the four columns the sweep sees.
+
+**D77 — a perturbation the protocol cannot support is dropped loudly, in prose.**
+`input_window_shift` moves the forecast origin earlier by dropping steps from the end, and
+the solar windows carry exactly the 72 hours of history the model needs, so any shift eats
+into it. Two honest options: lengthen the window, or leave the perturbation out and say
+why. The notebook does the second, in a paragraph, because the library's own rule —
+refusing to skip a perturbation a model cannot take — is about the same failure: a
+robustness score over only the perturbations that happened to work overstates robustness.
+The same rule is why the tutorial's baselines get a four-line NaN-tolerant subclass rather
+than `missing_segment` being removed from the set for them.
+
+### A defect the solar tutorial found: `basis="worst_cell"` over an error metric
+
+Reading the tutorial's robustness section raised the obvious arithmetic question — the
+worst cell is `missing_segment@5` at MAE 1360 against a clean 445, so why is the verdict
+0.577 rather than 445/1360 = 0.33? The answer is that `error_based_robustness` is Eq. 14,
+the *mean over the severity grid* of Eq. 13's ratio, and `worst_perturbation` is the
+minimum of those per-perturbation means. 0.33 is one cell; 0.577 is the mean of the five
+cells of that perturbation. That part is correct and the question is a fair one to ask of
+any §5.1.3 score: averaging across severities dilutes a catastrophic severity 5 with a
+benign severity 1, which is exactly what `basis="worst_cell"` exists to escape.
+
+Checking that escape hatch is what found the defect. `_checked_value` expressed the worst
+cell as `value / clean` for *both* metric families, on the reasoning that the same ratio
+serves both directions. It does not. For the accuracy family that ratio is Eq. 11's
+`A_perturbed / A_clean`, which is what `relative_robustness` already is. For the error
+family the metric is Eq. 13's `E_clean / E_perturbed`, bounded (0, 1) and best at 1 — and
+`E_perturbed / E_clean` is its **reciprocal**, Eq. 16's inflation. So the worst cell of
+this sweep was checked as 3.05 against a tolerance of 0.5 and came back `PASS`: an error
+that had tripled, read through the most conservative basis available, reported as within
+tolerance, with a value outside the metric's own declared bounds.
+
+Every existing test of that branch used `relative_robustness` over `accuracy`, where the
+two ratios coincide — which is how it survived. The fix puts the cell through
+`relative_error_ratio`, the same equation the per-perturbation score is built from, when
+the underlying metric is an error and the robustness metric is higher-is-better, so a
+worst cell and a per-perturbation score are the same quantity read at two resolutions.
+Affected: `relative_error_ratio`, `error_based_robustness`, `total_error_based_robustness`.
+Not affected: `error_inflation`, `corruption_error` and the other lower-is-better metrics
+already defined on the `E_perturbed / E_clean` scale, which keep the uninverted ratio.
+
+The same defect had a sibling one layer down. `report/findings.py` computed the worst
+cell's retention as `value / clean` for both families too, so for an error metric the
+retention came out *above* 1 — a tripled error scored 3.05 — and never crossed the
+`retention_threshold`. The `robustness.worst_cell` finding, which exists because §8 asks
+for the worst case beside the average, could not fire at all for a forecasting
+assessment. Fixed the same way, and the headline is now direction-aware: an accuracy
+"costs 32%", an error "multiplies mae by 3.1".
+
+The general lesson is the one D19 and D51 are also about: two quantities that agree on one
+family and are reciprocals on the other will pass every test written against the first.
+Both of these were found by a reader doing the arithmetic by hand and not getting the
+library's answer, which is the argument for a tutorial that prints its numbers.
+
+### And a third, from the polar chart: an axis every model collapses onto
+
+Same tutorial, same reader, looking at the model comparison: `mae` and `rmse` sat at zero
+for all four models, so the chart could not compare them on the two axes a forecasting
+audience looks at first.
+
+`normalize_metric` maps an unbounded lower-is-better metric with `exp(-value / scale)`,
+and `scale` defaults to 1.0 when the registry declares none — which it does for `mae` and
+`rmse`, because a scale for an error measured in megawatts cannot be a property of the
+metric. So `exp(-445.2)` is 4.5e-194 and `exp(-1777.5)` is 0.0: four models, four
+different errors, one point at the centre of the chart. The function's own docstring warns
+that "the default of 1.0 will silently decide it for you"; nothing acted on the warning.
+
+Two changes. `compare_models` and `assess_models` take `scales={metric: scale}`, passed
+to the normaliser — the acceptance threshold is usually the scale that means something,
+and `scales={"mae": 500.0}` reads as "an MAE of 500 scores 0.37, better climbs towards 1".
+And an axis where every model normalises to the same value while the **raw** values differ
+is now dropped, with a reason naming the fix, instead of being drawn. That is D52's rule
+applied to one more way of misleading: the comparison refuses rather than drawing
+agreement that is an artefact of the scale. An axis the models genuinely tie on is kept,
+because that tie is information.
+
+The three defects in this section share a shape. Each is a *silent* wrong answer produced
+by a quantity that is correct in one regime and meaningless in another — accuracy versus
+error family, bounded versus unbounded metric — and each survived because every test
+written for it used the regime where it works.
+
+**D78 — a builder refuses to overwrite a notebook that has been edited by hand.**
+D57 makes the notebooks generated artefacts, which is what keeps their prose honest about
+their own outputs. The cost of that is a rebuild rewriting every cell — and someone had
+improved the prose *in the notebook*, by hand, between two rebuilds. The second rebuild
+destroyed it, and nothing could bring it back: these notebooks are untracked, no Jupyter
+checkpoint existed, and VS Code's local history skips files over its 256 kB default, which
+every one of these exceeds.
+
+So `docs/notebook_guard.py` compares the cells already in the target against the ones
+about to replace them, prints a diff of what would be lost, and stops — before the
+execution, not after it. `--force` overrides and says so; `--check` runs the comparison
+alone.
+
+The guard is deliberately not a merge. Resolving a difference means copying the improved
+text **into the builder**, which is tracked and diffable, after which the next build
+reports no difference because there is none. A builder that quietly absorbed notebook
+edits would make the generated file the source of truth again, which is exactly what D57
+rejected — and the author of a hand edit is the only one who knows whether it was an
+improvement or an experiment.
+
+*Resolved once, 2026-11-19.* The solar notebook had accumulated a rewritten commentary
+and a deleted section, so `build_solar_forecasting_tutorial.py` had its cell calls
+regenerated from the notebook — mechanically, cell by cell, header and `build()` kept —
+and `--check` then reported no difference. This is the shape the resolution should take
+every time: the builder is brought up to the notebook in one deliberate step, not a
+merge, and the step is finished only when `--check` is silent.
+
 ## Still to be tested, not decided
 
 **Does `darts` (0.39.0 or newer) install and run on Python 3.13 with numpy 2.x / pandas 3.x?**
 Under D7 this no longer blocks anything — darts is behind `[timeseries]` and core stays at `>=3.11` — but
 the answer determines whether a `[timeseries]` install and a `[safetycage]` install can ever coexist in
 one environment. Worth knowing before repo B is asked to adopt repo A.
+
+*Partly answered, 2026-10-23, while building the forecasting tutorial.* **numpy 2.x: yes.**
+An environment of Python 3.12.15 / numpy 2.5.4 / pandas 2.3.3 / scikit-learn 1.9.1 /
+scipy 1.18.1 / **darts 0.48.1**, all from conda-forge, runs the full test suite green and
+executes the forecasting tutorial of the day (the electricity one, since retired) end to end. So the numpy 2 half of the question
+is settled, and the `[timeseries]` extra is usable today.
+
+**Two parts remain open.** Python *3.13* was not tried — 3.12 was, which is what
+`safetycage`'s floor of ≥3.13 makes the interesting number. And **pandas 3.x was not
+tried with darts**: this environment pins `pandas<3` deliberately, following the only
+combination already known to work on this machine. Since the one other local environment
+carrying the library (`themis-assess-312`) runs pandas 3.0.6 *without* darts, the pandas
+3 + darts question is exactly as untested as it was. Anyone resolving it should start
+there rather than from this environment.
+
+A practical note for whoever does, because it cost an afternoon and looks nothing like a
+packaging problem: on Windows, invoking a conda environment's `python.exe` **without
+activating the environment** crashes inside `scipy.linalg.lstsq` with
+`Windows fatal exception: code 0xc06d007f`. That is the delay-load helper reporting a
+missing module — MKL's DLLs live in `Library\bin`, which activation puts on `PATH`. numpy
+imports fine and scikit-learn looks fine until something reaches LAPACK, so it presents
+as a broken library rather than a broken invocation.
