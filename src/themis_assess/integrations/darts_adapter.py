@@ -1,15 +1,13 @@
 """Adapter between darts ``TimeSeries`` and the library's array boundary.
 
-Lives outside ``core/`` and ships under the ``[timeseries]`` extra: repo A's core must
+Lives outside ``core/`` and ships under the ``[timeseries]`` extra: The repo's core must
 not depend on darts (docs/DECISIONS.md, D7 and D11). ``darts`` is imported inside the
 functions that need it, so importing this module without darts installed raises a
 message naming the extra rather than an ``ImportError`` from deep in a traceback.
 
-What this buys the Valencia use case: its sixteen perturbation methods and its
-sensitivity heatmaps were written against ``List[TimeSeries]`` with vessel semantics.
-Through this adapter the same data reaches perturbations that know nothing about darts,
-vessels, or forecasting — and a perturbation written for the clinical tabular use case
-works on it unchanged.
+
+Through this adapter the data reaches perturbations that know nothing about darts,
+— and a perturbation written for instace for other type of data, such as tabular data, works on it unchanged.
 """
 
 from __future__ import annotations
@@ -41,8 +39,7 @@ class DartsAdapter(BaseAdapter):
     Entities may have different lengths; the value array is padded with ``NaN`` and
     :meth:`valid_mask` marks the real positions. ``alignment`` decides which end the
     padding goes on, and defaults to :attr:`Alignment.END` — in event forecasting the
-    meaningful shared axis is time remaining until the event, which is why repo B's
-    ``all_vessels_heatmap`` end-aligns its vessels.
+    meaningful shared axis is time remaining until the event.
 
     Time indices and static covariates are kept, so :meth:`to_series` returns a list
     that a darts model can consume directly.
@@ -55,8 +52,7 @@ class DartsAdapter(BaseAdapter):
     categorical_features:
         Which components are categorical. Declare these on the data handler and pass
         them through; when omitted, the constant-within-entity heuristic in
-        :func:`~themis_assess.core.adapters.infer_categorical_features` is used, which
-        is what repo B originally did.
+        :func:`~themis_assess.core.adapters.infer_categorical_features` is used.
     alignment:
         How unequal lengths line up.
     entity_ids:

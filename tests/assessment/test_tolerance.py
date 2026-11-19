@@ -24,8 +24,10 @@ from themis_assess.assessment.tolerance import (
     ToleranceRequirement,
 )
 from themis_assess.core.adapters import ArrayAdapter
+from themis_assess.core.results import RobustnessResult
 from themis_assess.handlers.baselines import PriorProbabilityHandler
 from themis_assess.handlers.sklearn import SklearnHandler
+from themis_assess.metrics.robustness import degradation
 
 
 @pytest.fixture(scope="module")
@@ -153,6 +155,72 @@ def test_the_worst_cell_basis_names_the_severity_too(assessed):
     verdict = criteria.verdict(result)
     assert "@" in verdict.worst_at
     assert verdict.worst_at.endswith("@5")  # the sweep's severities end at 5
+
+
+def test_the_worst_cell_of_an_error_metric_is_on_the_metrics_own_scale():
+    """The worst cell must be the same quantity as the score it is compared against.
+
+    ``error_based_robustness`` is Eq. 13's E_clean / E_perturbed, bounded (0, 1) and best
+    at 1. An earlier revision returned the cell as E_perturbed / E_clean — Eq. 16's
+    inflation, the reciprocal — so a cell where the error had tripled came back as 3.05
+    against a tolerance of 0.5 and *passed*: the most conservative basis was the most
+    flattering one. Every test of that branch used an accuracy metric, where the two
+    ratios coincide.
+    """
+    clean = 400.0
+    curves = {
+        "outage": {1: 500.0, 3: 800.0, 5: 1200.0},     # the worst cell: error x3
+        "noise": {1: 420.0, 3: 460.0, 5: 520.0},
+    }
+    result = RobustnessResult(
+        metric_name="error_based_robustness",
+        accuracy_metric="mae",
+        clean=clean,
+        per_perturbation=curves,
+        scores={
+            name: degradation.error_based_robustness(clean, curve)
+            for name, curve in curves.items()
+        },
+        aggregate=0.5,
+        metadata={"higher_is_better": False},          # mae, the underlying metric
+    )
+
+    criteria = RobustnessCriteria(
+        [
+            ToleranceRequirement(
+                "error_based_robustness", acceptable=0.5, basis="worst_cell"
+            )
+        ]
+    )
+    verdict = criteria.verdict(result)
+
+    assert verdict.worst_at == "outage@5"
+    assert verdict.value == pytest.approx(400.0 / 1200.0, rel=1e-6)
+    assert 0.0 <= verdict.value <= 1.0                 # inside the metric's own bounds
+    assert verdict.passed is False                     # an error that tripled is not a pass
+
+
+def test_the_worst_cell_of_an_inflation_metric_keeps_the_inflation_ratio():
+    """The other half of the same rule: ``error_inflation`` *is* E_perturbed / E_clean,
+    lower-is-better and unbounded above, so the cell is not inverted for it."""
+    clean = 400.0
+    curves = {"outage": {1: 500.0, 5: 1200.0}}
+    result = RobustnessResult(
+        metric_name="error_inflation",
+        accuracy_metric="mae",
+        clean=clean,
+        per_perturbation=curves,
+        scores={"outage": 3.0},
+        aggregate=3.0,
+        metadata={"higher_is_better": False},
+    )
+    criteria = RobustnessCriteria(
+        [ToleranceRequirement("error_inflation", acceptable=2.0, basis="worst_cell")]
+    )
+    verdict = criteria.verdict(result)
+
+    assert verdict.value == pytest.approx(3.0)
+    assert verdict.passed is False
 
 
 def test_the_aggregate_basis_needs_an_aggregate(assessed):

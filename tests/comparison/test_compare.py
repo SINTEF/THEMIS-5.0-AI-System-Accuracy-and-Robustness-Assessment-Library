@@ -101,6 +101,55 @@ def test_a_non_finite_value_is_dropped():
     assert "finite" in c.dropped["auc"]
 
 
+def test_an_axis_every_model_collapses_onto_is_dropped_rather_than_drawn():
+    """The polar chart's silent failure, found by a reader looking at one.
+
+    ``mae`` is unbounded and the registry declares no scale, so the normaliser falls back
+    to ``exp(-value/1.0)`` and anything measured in hundreds underflows: errors of 445 and
+    1778 both plot at exactly 0.0, and every model sits on top of every other at the
+    centre of the chart. A missing axis is honest; an axis showing agreement that is an
+    artefact of the scale is not.
+    """
+    c = compare_models(
+        {
+            "xgboost": {"mae": 445.2, "error_based_robustness": 0.18},
+            "naive": {"mae": 1777.5, "error_based_robustness": 0.52},
+        }
+    )
+    assert c.metrics == ("error_based_robustness",)
+    assert "unbounded" in c.dropped["mae"]
+    assert "scales={'mae'" in c.dropped["mae"]       # and it names the fix
+
+
+def test_a_scale_puts_an_unbounded_metric_back_on_the_chart():
+    c = compare_models(
+        {
+            "xgboost": {"mae": 445.2, "error_based_robustness": 0.18},
+            "naive": {"mae": 1777.5, "error_based_robustness": 0.52},
+        },
+        scales={"mae": 500.0},
+    )
+    assert "mae" in c.metrics and "mae" not in c.dropped
+    assert c.normalised["xgboost"]["mae"] > c.normalised["naive"]["mae"]
+    assert c.raw["xgboost"]["mae"] == 445.2          # the raw value is never rescaled
+
+
+def test_every_axis_collapsing_raises_rather_than_drawing_one_point():
+    with pytest.raises(ValueError, match="no axis left"):
+        compare_models({"a": {"mae": 445.2}, "b": {"mae": 1777.5}})
+
+
+def test_an_axis_the_models_genuinely_tie_on_is_kept():
+    """Only a normalisation that destroys information is refused. Two models that really
+    do score the same are telling the reader something, and dropping that would hide it.
+    """
+    c = compare_models(
+        {"a": {"accuracy": 0.8, "auc": 0.9}, "b": {"accuracy": 0.8, "auc": 0.7}}
+    )
+    assert "accuracy" in c.metrics
+    assert "accuracy" not in c.dropped
+
+
 def test_two_reports_with_the_same_name_are_refused():
     class Fake:
         model_name = "same"

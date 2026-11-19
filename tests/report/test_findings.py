@@ -203,6 +203,35 @@ def test_the_worst_cell_is_reported_against_the_clean_value(robustness):
     assert evidence["retained"] == pytest.approx(value / robustness.clean)
 
 
+def test_the_worst_cell_finding_fires_for_an_error_metric_too():
+    """Retention is the cell over clean for an accuracy and clean over the cell for an
+    *error*, where a worse value is a larger one.
+
+    Using the first ratio for both put an error sweep's retention above 1 — a tripled
+    error scored 3.05 — so it never crossed the threshold and the finding survey §8 asks
+    for could not fire at all for the error family. A stub rather than a fitted
+    forecaster: this generator reads nothing but the result's public surface.
+    """
+    from types import SimpleNamespace
+
+    assessment = SimpleNamespace(
+        tolerance=None,
+        metric_names=["error_based_robustness"],
+        accuracy_metric="mae",
+        clean=400.0,
+        worst_cell=lambda: ("outage", 5, 1200.0),
+    )
+    found = [
+        f
+        for f in findings_from_robustness(assessment)
+        if f.rule == "robustness.worst_cell"
+    ]
+    assert found, "an error that tripled at the worst cell produced no finding"
+    assert found[0].evidence["retained"] == pytest.approx(1 / 3)
+    assert found[0].severity == "serious"
+    assert "multiplies mae by 3.0" in found[0].headline
+
+
 # --------------------------------------------------------------------------
 # groups
 # --------------------------------------------------------------------------

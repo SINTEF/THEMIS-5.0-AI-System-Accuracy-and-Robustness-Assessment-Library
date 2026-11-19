@@ -16,6 +16,7 @@ severity curves                  line per perturbation               categorical
 :class:`ConfusionMatrix`         heatmap                             sequential
 reliability bins                 line against the diagonal           one series
 accuracy over time               line                                one series
+stacked forecasts                animated line against the truth     one series
 :class:`GroupComparison`         box per group                       categorical
 subgroup metrics                 grouped bars                        categorical
 feature-bin error rates          bars along an ordered axis          one series
@@ -51,6 +52,7 @@ __all__ = [
     "plot_confusion_matrix",
     "plot_reliability_diagram",
     "plot_accuracy_over_time",
+    "plot_forecast_animation",
     "plot_group_boxes",
     "plot_subgroup_metrics",
     "plot_feature_bins",
@@ -202,6 +204,256 @@ def plot_accuracy_over_time(
         showlegend=highlight_worst > 0,
         **layout,
     )
+
+
+def plot_forecast_animation(
+    forecasts: ArrayLike,
+    actual: ArrayLike,
+    *,
+    history: ArrayLike | None = None,
+    frame_labels: Sequence[Any] | None = None,
+    annotations: Sequence[str] | None = None,
+    frame_name: str = "origin",
+    value_name: str = "value",
+    frame_ms: int = 500,
+    palette: Palette | None = None,
+    title: str = "",
+    **layout: Any,
+) -> Any:
+    """One forecast per frame, played along an axis of origins — or of severities.
+
+    A rolling evaluation produces a stack of forecasts, and the curve of error per origin
+    says *that* some were bad without ever showing what bad looked like. This plays the
+    stack: each frame draws one forecast against the truth it was scored on, with the
+    history it was issued from behind it.
+
+    The frame axis is whatever the caller stacked. Forecasts from successive origins give
+    the rolling animation; the same forecast under rising perturbation severity gives the
+    degradation one, which is the version worth watching when a severity curve has moved
+    and the question is what the model is doing instead.
+
+    Parameters
+    ----------
+    forecasts:
+        ``(n_frames, horizon)``, or ``(1, n_frames, horizon)`` as
+        :meth:`~themis_assess.handlers.forecasting.ForecastingHandler.historical_forecasts`
+        returns it for a single entity.
+    actual:
+        The truth over the horizon: ``(n_frames, horizon)``, or ``(horizon,)`` when every
+        frame is scored against the same window.
+    history:
+        Optional observed values *before* the origin, ``(n_frames, n_history)`` or
+        ``(n_history,)``. Drawn continuous with the truth, so the forecast can be read
+        against what the model had just seen.
+    frame_labels:
+        One label per frame — a timestamp, a severity. Shown on the slider, so these are
+        what a reader navigates by.
+    annotations:
+        One line of text per frame, appended to the title. The per-frame error belongs
+        here: this builder will not compute it, because a figure that quietly scores its
+        own frames is the arrangement :mod:`themis_assess.viz.bundles` exists to avoid.
+
+    Notes
+    -----
+    The y-range is fixed across frames. An axis that rescales per frame makes a forecast
+    that collapsed look like one that held, which is the single way an animation of this
+    kind misleads.
+    """
+    go = _go()
+    p = palette or DEFAULT_PALETTE
+
+    predicted = _frames_2d(forecasts, "forecasts")
+    n_frames, horizon = predicted.shape
+    truth = _broadcast_frames(actual, n_frames, "actual")
+    if truth.shape[1] != horizon:
+        raise ValueError(
+            f"actual covers {truth.shape[1]} step(s) but the forecasts cover {horizon}. "
+            f"They have to be the same horizon to be drawn against each other."
+        )
+    past = None if history is None else _broadcast_frames(history, n_frames, "history")
+
+    for name, labels in (("frame_labels", frame_labels), ("annotations", annotations)):
+        if labels is not None and len(labels) != n_frames:
+            raise ValueError(
+                f"Got {len(labels)} {name} for {n_frames} frame(s); one per frame."
+            )
+    labels = (
+        [str(label) for label in frame_labels]
+        if frame_labels is not None
+        else [str(i) for i in range(n_frames)]
+    )
+
+    n_past = 0 if past is None else past.shape[1]
+    x_observed = list(range(-n_past + 1, horizon + 1))
+    x_forecast = list(range(1, horizon + 1))
+
+    def observed(frame: int) -> list[float]:
+        if past is None:
+            return list(truth[frame])
+        return list(past[frame]) + list(truth[frame])
+
+    stacked = [predicted, truth] + ([] if past is None else [past])
+    finite = np.concatenate([a[np.isfinite(a)].ravel() for a in stacked])
+    if finite.size == 0:
+        raise ValueError("Nothing finite to draw.")
+    low, high = float(finite.min()), float(finite.max())
+    pad = 0.05 * (high - low) if high > low else max(abs(high), 1.0) * 0.05
+
+    def traces(frame: int) -> list[Any]:
+        return [
+            go.Scatter(
+                x=x_observed,
+                y=observed(frame),
+                mode="lines",
+                name="observed",
+                line=dict(color=p.reference, width=2),
+                hovertemplate=f"step %{{x}}<br>{value_name} %{{y:.4g}}<extra>observed</extra>",
+            ),
+            go.Scatter(
+                x=x_forecast,
+                y=list(predicted[frame]),
+                mode="lines",
+                name="forecast",
+                line=dict(color=p.series(0), width=2.5),
+                hovertemplate=f"step %{{x}}<br>{value_name} %{{y:.4g}}<extra>forecast</extra>",
+            ),
+        ]
+
+    def heading(frame: int) -> str:
+        parts = [part for part in (title, f"{frame_name} {labels[frame]}") if part]
+        head = " — ".join(parts)
+        if annotations is not None:
+            head = f"{head}<br><sup>{annotations[frame]}</sup>"
+        return head
+
+    figure = go.Figure(
+        data=traces(0),
+        frames=[
+            go.Frame(
+                data=traces(frame),
+                name=labels[frame],
+                layout=go.Layout(title=dict(text=heading(frame))),
+            )
+            for frame in range(n_frames)
+        ],
+    )
+    if n_past:
+        figure.add_vline(
+            x=0.5, line=dict(color=p.reference, width=1, dash="dot"),
+            annotation_text="origin", annotation_position="top left",
+        )
+
+    # ``redraw`` has to be True, and it is the difference between a working figure and a
+    # misleading one. Each frame carries its own title — the one holding the per-frame
+    # annotation, the error of the forecast on screen — and a title is a *layout* change.
+    # With redraw=False plotly swaps the trace data only, so the picture advances while
+    # the number above it stays on frame 0's value: a caption that silently belongs to a
+    # different forecast. The cost is a full redraw per frame, which at these sizes is
+    # not perceptible.
+    play_args = dict(
+        frame=dict(duration=frame_ms, redraw=True),
+        fromcurrent=True,
+        mode="immediate",
+        transition=dict(duration=0),
+    )
+    step_args = dict(
+        frame=dict(duration=0, redraw=True),
+        mode="immediate",
+        transition=dict(duration=0),
+    )
+    figure.update_layout(
+        updatemenus=[
+            dict(
+                type="buttons",
+                direction="left",
+                # Top right, clear of the title: a centred title grows symmetrically
+                # about the middle, so the right edge is the one place controls cannot
+                # end up underneath it.
+                x=1.0,
+                y=1.06,
+                xanchor="right",
+                yanchor="bottom",
+                showactive=False,
+                pad=dict(r=0, t=0),
+                buttons=[
+                    dict(label="▶ play", method="animate", args=[None, play_args]),
+                    dict(
+                        label="❚❚ pause",
+                        method="animate",
+                        args=[
+                            [None],
+                            dict(frame=dict(duration=0, redraw=False), mode="immediate"),
+                        ],
+                    ),
+                ],
+            )
+        ],
+        sliders=[
+            dict(
+                active=0,
+                x=0.08,
+                len=0.92,
+                # Pushed below the x-axis title rather than sitting on top of it, which
+                # is where plotly's default puts it.
+                y=-0.22,
+                yanchor="top",
+                pad=dict(t=10, b=10),
+                currentvalue=dict(prefix=f"{frame_name}: ", font=dict(size=12)),
+                steps=[
+                    dict(label=labels[frame], method="animate",
+                         args=[[labels[frame]], step_args])
+                    for frame in range(n_frames)
+                ],
+            )
+        ],
+    )
+    figure = apply_layout(
+        figure,
+        title=heading(0),
+        x_title="steps ahead of the forecast origin",
+        y_title=value_name,
+        palette=p,
+        **layout,
+    )
+    figure.update_yaxes(range=[low - pad, high + pad])
+    # Room under the plot for the axis title *and* the slider, and above it for the
+    # controls. apply_layout's margins assume a figure with neither.
+    figure.update_layout(margin=dict(l=70, r=30, t=90 if title else 60, b=120))
+    return figure
+
+
+def _frames_2d(values: ArrayLike, name: str) -> Any:
+    """``(n_frames, horizon)``, accepting the single-entity 3-D form."""
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 3:
+        if array.shape[0] != 1:
+            raise ValueError(
+                f"{name} has {array.shape[0]} entities. An animation draws one series, "
+                f"so index the entity first: {name}[entity]."
+            )
+        array = array[0]
+    if array.ndim != 2:
+        raise ValueError(f"{name} must be (n_frames, horizon); got shape {array.shape}.")
+    if array.shape[0] == 0:
+        raise ValueError(f"{name} has no frames to animate.")
+    return array
+
+
+def _broadcast_frames(values: ArrayLike, n_frames: int, name: str) -> Any:
+    """``(n_frames, k)``, repeating a one-dimensional input across the frames."""
+    array = np.asarray(values, dtype=float)
+    if array.ndim == 3 and array.shape[0] == 1:
+        array = array[0]
+    if array.ndim == 1:
+        return np.repeat(array[None, :], n_frames, axis=0)
+    if array.ndim != 2:
+        raise ValueError(f"{name} must be 1- or 2-dimensional; got shape {array.shape}.")
+    if array.shape[0] != n_frames:
+        raise ValueError(
+            f"{name} has {array.shape[0]} frame(s) but the forecasts have {n_frames}. "
+            f"Pass one row per frame, or a single row to use for every frame."
+        )
+    return array
 
 
 def plot_reliability_diagram(

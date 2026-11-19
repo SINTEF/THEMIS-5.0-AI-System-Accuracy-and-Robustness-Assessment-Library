@@ -435,6 +435,7 @@ def assess_models(
     metrics: Sequence[str] | None = None,
     axes: Sequence[str] | None = None,
     include_robustness: bool = True,
+    scales: Mapping[str, float] | None = None,
     table: bool = False,
     palette: Palette | None = None,
     title: str = "",
@@ -448,6 +449,13 @@ def assess_models(
     chart shows which loop is bigger, and the analysis says whether the metrics agree
     about it.
 
+    ``scales`` is the one argument an unbounded metric needs: ``mae`` and ``rmse`` have
+    no upper bound, so the normaliser has no idea what "good" is and falls back to a
+    scale of 1.0, where every real error saturates to zero and the axis separates
+    nothing. ``scales={"mae": 500.0, "rmse": 800.0}`` — the acceptance thresholds, as a
+    rule — puts them back on the chart. An axis that collapses anyway is dropped with
+    the reason, rather than drawn as four models agreeing at the centre.
+
     ``metrics`` restricts what is *compared*; ``axes`` restricts what is *drawn*, which
     are different choices — the analysis wants every shared metric and a polar chart
     wants the handful the decision turns on. ``table=True`` draws the numbers instead of
@@ -457,7 +465,10 @@ def assess_models(
     from themis_assess.comparison.compare import compare_models
 
     comparison = compare_models(
-        reports, metrics=metrics, include_robustness=include_robustness
+        reports,
+        metrics=metrics,
+        include_robustness=include_robustness,
+        scales=scales,
     )
     if table:
         figure = figures.plot_comparison_table(

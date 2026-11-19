@@ -189,7 +189,7 @@ def test_the_conda_specs_come_from_pyproject(config):
 
 
 def test_the_conda_environment_can_run_the_tutorial():
-    """`conda env create` must be enough to open docs/tutorial.ipynb.
+    """`conda env create` must be enough to open docs/tutorial_classification.ipynb.
 
     It was not, once: Jupyter was a commented suggestion, so the one path aimed squarely
     at someone exploring the code could not run the documentation that explains it.

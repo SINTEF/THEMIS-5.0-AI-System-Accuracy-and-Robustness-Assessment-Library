@@ -517,7 +517,21 @@ def findings_from_robustness(
     perturbation, severity, value = assessment.worst_cell()
     clean = assessment.clean
     if clean:
-        retained = value / clean
+        # Retention is "how much of the clean quantity survived", which is the cell over
+        # clean for an accuracy and clean over the cell for an *error*: a worse error is a
+        # larger number. Taking value/clean for both meant an error metric produced a
+        # retention above 1 — a sweep where the error tripled scored 3.05 — so this
+        # finding, the one survey §8 asks for beside the average, could never fire for the
+        # error family at all. The same reciprocal that D77's note describes in
+        # `assessment/tolerance.py`.
+        from themis_assess.metrics.registry import default_registry
+
+        spec = default_registry().get(assessment.accuracy_metric)
+        retained = (
+            value / clean
+            if spec.higher_is_better
+            else (clean / value if value else float("inf"))
+        )
         if retained < retention_threshold:
             out.append(
                 Finding(
@@ -525,14 +539,20 @@ def findings_from_robustness(
                     rule="robustness.worst_cell",
                     area="robustness",
                     headline=(
-                        f"{perturbation} at severity {severity} costs "
-                        f"{abs(1 - retained):.0%} of {assessment.accuracy_metric}"
+                        f"{perturbation} at severity {severity} "
+                        + (
+                            f"costs {abs(1 - retained):.0%} of "
+                            f"{assessment.accuracy_metric}"
+                            if spec.higher_is_better
+                            else f"multiplies {assessment.accuracy_metric} by "
+                            f"{value / clean:.1f}"
+                        )
                     ),
                     detail=(
-                        f"Clean {assessment.accuracy_metric} is {clean:.4f} and falls to "
-                        f"{value:.4f} at the worst cell. Survey §8 asks for the worst "
-                        f"case beside the average precisely because an aggregate over "
-                        f"severities hides it."
+                        f"Clean {assessment.accuracy_metric} is {clean:.4f} and the worst "
+                        f"cell is {value:.4f}. Survey §8 asks for the worst case beside "
+                        f"the average precisely because an aggregate over severities "
+                        f"hides it."
                     ),
                     evidence={
                         "perturbation": perturbation,

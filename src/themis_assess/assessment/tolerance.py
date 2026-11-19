@@ -18,13 +18,16 @@ An accuracy criterion is checked against one number. A robustness tolerance has 
 checked against a *shape*, and there are three defensible readings of "acceptable
 degradation" which disagree:
 
-* the **aggregate** — mean relative robustness across the perturbation set, which is what
-  a single headline figure would report, and which averages away a single catastrophic
-  perturbation;
-* the **worst perturbation** — the minimum across the set, which is what an adversary or
-  an unlucky deployment gets;
-* the **worst cell** — the minimum across perturbation *and* severity, which is the most
-  conservative and the one survey §8 asks for beside the average.
+* the **aggregate** — the robustness metric's own aggregation across the perturbation set
+  (Eq. 12's sum for the relative family, Eq. 15's product for the error family), which is
+  what a single headline figure would report;
+* the **worst perturbation** — the minimum across the set. Worth being precise about what
+  that minimises: a per-perturbation score is *already averaged over the severity grid*
+  (Eq. 14 for the error family), so this is the worst perturbation's mean over severities
+  and not its worst severity. A benign severity 1 pulls a catastrophic severity 5 up;
+* the **worst cell** — the worst single ``(perturbation, severity)`` in the grid, as a
+  ratio to the clean value, which is the most conservative reading and the one survey §8
+  asks for beside the average.
 
 All three are available and the choice is explicit, because a claim of "robust within
 tolerance" means different things under each and reporting only the flattering one is the
@@ -333,11 +336,30 @@ class RobustnessCriteria:
                 f"it is undefined. Use basis='worst_perturbation', which reads the "
                 f"scored value directly."
             )
-        # Expressed as a ratio to clean, which puts it on the robustness metric's own
-        # scale. The same ratio serves both directions: for an accuracy it is Eq. 11's
-        # A_perturbed / A_clean, and for an error it is Eq. 16's E_perturbed / E_clean.
-        # Only *which cell is worst* differs between them, and that is the picker above.
-        return float(value / result.clean), f"{perturbation}@{severity}"
+        # Expressed as a ratio to clean, which puts the cell on the *checked metric's*
+        # own scale. Two different ratios are needed for that, and an earlier revision
+        # used one for both:
+        #
+        #   accuracy family — Eq. 11's A_perturbed / A_clean, which is already what
+        #   `relative_robustness` is;
+        #   error family — the metric is Eq. 13's E_clean / E_perturbed, best at 1. The
+        #   ratio the other way round, E_perturbed / E_clean, is Eq. 16's *inflation*:
+        #   the reciprocal, on an unbounded scale where larger is worse.
+        #
+        # Returning the inflation for an error-family metric made the worst cell read as
+        # 3.05 against bounds of (0, 1) and a tolerance of 0.5 — so the most conservative
+        # basis, on an error that had tripled, came back PASS. The correct value was its
+        # reciprocal, 0.33, which fails. Every test of this branch used an accuracy
+        # metric, where the two coincide, which is why it survived.
+        if not underlying_higher_is_better and higher_is_better:
+            from themis_assess.metrics.robustness.degradation import relative_error_ratio
+
+            # The same equation the per-perturbation score is built from, so a worst cell
+            # and a per-perturbation score are the same quantity read at two resolutions.
+            ratio = relative_error_ratio(result.clean, value)
+        else:
+            ratio = value / result.clean
+        return float(ratio), f"{perturbation}@{severity}"
 
     def verdict(
         self, result: RobustnessResult, *, higher_is_better: bool | None = None

@@ -290,6 +290,131 @@ def test_signed_attribution_uses_the_diverging_ramp_and_unsigned_does_not(assess
 
 
 # --------------------------------------------------------------------------
+# the forecast animation
+# --------------------------------------------------------------------------
+
+
+def _stacked(n_frames=4, horizon=6, n_history=5):
+    rng = np.random.default_rng(0)
+    truth = rng.normal(size=(n_frames, horizon))
+    return {
+        "forecasts": truth + rng.normal(scale=0.2, size=truth.shape),
+        "actual": truth,
+        "history": rng.normal(size=(n_frames, n_history)),
+    }
+
+
+def test_the_animation_has_one_frame_per_forecast():
+    stack = _stacked(n_frames=7)
+    figure = figures.plot_forecast_animation(**stack)
+    assert len(figure.frames) == 7
+    assert len(figure.layout.sliders[0].steps) == 7
+
+
+def test_the_y_range_is_fixed_so_a_collapsed_forecast_cannot_look_steady():
+    """The single way an animation of this kind misleads: an axis that rescales per
+    frame draws a forecast that fell apart exactly like one that held."""
+    stack = _stacked()
+    stack["forecasts"][-1] *= 40.0
+    figure = figures.plot_forecast_animation(**stack)
+    low, high = figure.layout.yaxis.range
+    assert low <= stack["forecasts"].min() and high >= stack["forecasts"].max()
+    assert all(frame.layout.yaxis.range is None for frame in figure.frames)
+
+
+def test_the_history_is_drawn_continuous_with_the_truth_and_before_the_origin():
+    stack = _stacked(horizon=6, n_history=5)
+    figure = figures.plot_forecast_animation(**stack)
+    observed = figure.data[0]
+    assert list(observed.x) == [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6]
+    assert len(observed.y) == 11
+    assert list(figure.data[1].x) == [1, 2, 3, 4, 5, 6]   # the forecast starts at the origin
+
+
+def test_one_truth_window_can_serve_every_frame():
+    """The severity form: the same window forecast again at each severity."""
+    stack = _stacked(n_frames=5, horizon=6)
+    figure = figures.plot_forecast_animation(
+        stack["forecasts"], stack["actual"][0], frame_labels=[1, 2, 3, 4, 5],
+        frame_name="severity",
+    )
+    assert len(figure.frames) == 5
+    assert figure.layout.sliders[0].currentvalue.prefix.startswith("severity")
+
+
+def test_the_single_entity_rolling_shape_is_accepted():
+    """What historical_forecasts returns for one entity, passed straight through."""
+    stack = _stacked(n_frames=3, horizon=6)
+    figure = figures.plot_forecast_animation(
+        stack["forecasts"][None, :, :], stack["actual"][None, :, :]
+    )
+    assert len(figure.frames) == 3
+
+
+def test_several_entities_raise_rather_than_drawing_the_first():
+    stack = _stacked(n_frames=3, horizon=6)
+    two = np.stack([stack["forecasts"], stack["forecasts"]])
+    with pytest.raises(ValueError, match="index the entity"):
+        figures.plot_forecast_animation(two, stack["actual"])
+
+
+def test_a_mismatched_horizon_is_refused():
+    stack = _stacked(horizon=6)
+    with pytest.raises(ValueError, match="same horizon"):
+        figures.plot_forecast_animation(stack["forecasts"], stack["actual"][:, :4])
+
+
+def test_labels_must_be_one_per_frame():
+    stack = _stacked(n_frames=4)
+    with pytest.raises(ValueError, match="one per frame"):
+        figures.plot_forecast_animation(
+            stack["forecasts"], stack["actual"], frame_labels=["a", "b"]
+        )
+
+
+def test_the_frames_redraw_so_the_per_frame_caption_changes_with_the_picture():
+    """A frame's title is a *layout* change, and plotly's no-redraw transition applies
+    trace data only — so with redraw off the forecast advanced while the error above it
+    stayed on frame 0's value, captioning every window with the first one's number."""
+    stack = _stacked(n_frames=3)
+    figure = figures.plot_forecast_animation(
+        stack["forecasts"], stack["actual"], annotations=["MAE 1", "MAE 2", "MAE 3"]
+    )
+    play = figure.layout.updatemenus[0].buttons[0]
+    assert play.args[1]["frame"]["redraw"] is True
+    assert all(
+        step.args[1]["frame"]["redraw"] is True
+        for step in figure.layout.sliders[0].steps
+    )
+    assert [frame.layout.title.text.split("<sup>")[1][:5] for frame in figure.frames] == [
+        "MAE 1", "MAE 2", "MAE 3",
+    ]
+
+
+def test_the_controls_clear_the_title_and_the_axis_label():
+    """Both collisions plotly's defaults produce here: the buttons land on the title and
+    the slider lands on the x-axis title."""
+    figure = figures.plot_forecast_animation(**_stacked())
+    buttons = figure.layout.updatemenus[0]
+    assert (buttons.x, buttons.xanchor) == (1.0, "right")   # top right, past the title
+    assert buttons.y > 1.0                                  # and above the plot area
+    slider = figure.layout.sliders[0]
+    assert slider.y < 0 and slider.yanchor == "top"         # below the x-axis title
+    assert figure.layout.margin.b >= 120                    # with room for both
+
+
+def test_the_annotation_is_the_callers_and_the_figure_computes_no_error():
+    """The builder will not score its own frames — a figure that quietly computes an
+    analysis is what the bundle layer exists to avoid (docs/DECISIONS.md, D44)."""
+    stack = _stacked(n_frames=3)
+    figure = figures.plot_forecast_animation(
+        stack["forecasts"], stack["actual"], annotations=["MAE 1", "MAE 2", "MAE 3"]
+    )
+    assert "MAE 1" in figure.layout.title.text
+    assert "MAE 3" in figure.frames[2].layout.title.text
+
+
+# --------------------------------------------------------------------------
 # verdict tables
 # --------------------------------------------------------------------------
 

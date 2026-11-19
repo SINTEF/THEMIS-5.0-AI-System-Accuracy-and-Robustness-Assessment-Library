@@ -235,6 +235,7 @@ def compare_models(
     *,
     metrics: Sequence[str] | None = None,
     include_robustness: bool = True,
+    scales: Mapping[str, float] | None = None,
     registry: MetricRegistry | None = None,
 ) -> ModelComparison:
     """Compare assessment reports — or plain metric dictionaries — on shared axes.
@@ -254,6 +255,15 @@ def compare_models(
         Whether to include robustness scores as axes. They are included only where every
         model computed them over the *same* underlying accuracy metric; a mismatch drops
         the axis with that as the reason.
+    scales:
+        ``{metric: scale}`` for the normaliser. An **unbounded** metric has no intrinsic
+        notion of how good is good, so ``normalize_metric`` needs one: without it the
+        fallback is a scale of 1.0, and ``exp(-value/1.0)`` is zero to machine precision
+        for anything measured in hundreds. Every model then lands on the same point and
+        the axis separates nothing — which this function now detects and drops rather
+        than drawing. A scale that means something is usually the acceptance threshold
+        for that metric: ``scales={"mae": 500.0}`` reads as "an MAE of 500 scores about
+        0.37, and better errors climb towards 1".
 
     Raises
     ------
@@ -338,11 +348,56 @@ def compare_models(
     raw = {m: {metric: per_model[m][metric] for metric in shared} for m in models}
     normalised = {
         m: {
-            metric: normalize_metric(raw[m][metric], metric, registry=reg)
+            metric: normalize_metric(
+                raw[m][metric],
+                metric,
+                registry=reg,
+                scale=None if scales is None else scales.get(metric),
+            )
             for metric in shared
         }
         for m in models
     }
+
+    # An axis every model lands on is not an axis. The usual cause is an *unbounded*
+    # metric with no registered scale: the normaliser falls back to exp(-value/1.0), so
+    # an MAE of 445 and one of 1778 both come out as 0.0 and four models sit on top of
+    # each other at the centre of the polar chart. Nothing in the figure says why, and a
+    # reader sees agreement that is an artefact of the scale. So the axis is dropped and
+    # the reason names the fix — the same treatment as a metric one model is missing.
+    for metric in list(shared):
+        scores = {round(normalised[m][metric], 12) for m in models}
+        values = {round(float(raw[m][metric]), 12) for m in models}
+        if len(scores) > 1 or len(values) < 2:
+            continue
+        spec = reg.get(metric)
+        unbounded = spec.lower_bound is None or spec.upper_bound is None
+        if unbounded and spec.scale is None and (scales is None or metric not in scales):
+            low, high = min(values), max(values)
+            dropped[metric] = (
+                f"every model normalises to {next(iter(scores)):.3g} although the raw "
+                f"values range from {low:.4g} to {high:.4g}: {metric} is unbounded and "
+                f"no scale is registered, so normalisation falls back to a scale of 1.0 "
+                f"and saturates. Pass scales={{'{metric}': <a value that matters, e.g. "
+                f"the acceptance threshold>}} to put it back on the chart"
+            )
+        else:
+            dropped[metric] = (
+                f"every model normalises to {next(iter(scores)):.3g} although the raw "
+                f"values differ, so the axis separates nothing"
+            )
+        shared.remove(metric)
+        for model in models:
+            raw[model].pop(metric)
+            normalised[model].pop(metric)
+
+    if not shared:
+        raise ValueError(
+            "Every shared metric collapsed to a single normalised value, so there is no "
+            "axis left to compare on.\n"
+            + "\n".join(f"  {k}: {v}" for k, v in sorted(dropped.items()))
+        )
+
     return ModelComparison(
         models=models,
         metrics=tuple(shared),
