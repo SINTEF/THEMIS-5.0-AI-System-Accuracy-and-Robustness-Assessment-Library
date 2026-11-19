@@ -31,8 +31,8 @@ explain = ["tsfresh>=0.20", "xgboost>=2.0", "shap>=0.45"]
 # statsmodels is also pulled in by safetycage[spardacus]; listed for its version floor.
 safetycage = ["safetycage[torch,red,spardacus,mahalanobis]>=0.0.67", "statsmodels>=0.15.0"]
 mpl = ["matplotlib>=3.11.2"]
-# For docs/tutorial.ipynb and docs/safetycage_tutorial.ipynb. nbformat and nbclient are
-# only needed to *rebuild* the notebook with docs/build_tutorial.py, which executes every cell.
+# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb. nbformat and
+# nbclient are only needed to *rebuild* a notebook with its builder, which executes every cell.
 tutorial = [
     "jupyter>=1.0",
     "ipykernel>=7.4.0",

@@ -109,9 +109,9 @@ tutorial:
     - pip install --quiet -e ".[tutorial]"
     - pip install --quiet nbmake pytest
   script:
-    - pytest --nbmake docs/tutorial.ipynb
+    - pytest --nbmake docs/tutorial_classification.ipynb
   artifacts:
     when: always
     paths:
-      - "docs/tutorial.ipynb"
+      - "docs/tutorial_classification.ipynb"
     expire_in: 1 week

@@ -12,7 +12,7 @@ holds every result. It is what ``summarise`` reads, and it is built by ``ta.buil
 from whatever assessments you happened to run — every argument to it is optional.
 
 The full version of this walkthrough, with the explanation of each number, is
-``docs/tutorial.ipynb`` (§12 is the summary section).
+``docs/tutorial_classification.ipynb`` (§12 is the summary section).
 """
 
 from __future__ import annotations

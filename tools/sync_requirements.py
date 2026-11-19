@@ -35,11 +35,17 @@ HEADER = (
 )
 
 
-#: PyPI name -> conda-forge name, where they differ. Empty for this project's
-#: dependencies (pyyaml, scikit-learn and the rest carry the same name on both), but the
-#: indirection is here so that a future dependency which does differ has an obvious home
-#: rather than being silently wrong.
-CONDA_NAMES: dict[str, str] = {}
+#: PyPI name -> conda-forge name, where they differ. None of the core, dev or tutorial
+#: dependencies differ (pyyaml, scikit-learn and the rest carry the same name on both),
+#: so nothing here is exercised by the files this script currently generates — only
+#: those three groups reach :func:`_conda_specs`.
+#:
+#: ``darts`` is listed anyway, because it is the one dependency this project has that
+#: genuinely differs: conda-forge packages it as ``u8darts``, and ``conda install darts``
+#: installs an unrelated package. Building the forecasting tutorial's environment is what
+#: turned that up. The entry is what makes adding ``[timeseries]`` to a conda environment
+#: a one-line change rather than a silently wrong one.
+CONDA_NAMES: dict[str, str] = {"darts": "u8darts"}
 
 #: Build-backend packages. Not runtime dependencies, so they are not in pyproject's
 #: dependency lists — but they are what an editable install has to build with, and having
@@ -118,9 +124,9 @@ def render(config: dict) -> dict[str, str]:
     files["requirements-tutorial.txt"] = _block(
         [
             HEADER,
-            "# For docs/tutorial.ipynb. The notebook itself needs only the core plus",
-            "# Jupyter; nbformat and nbclient are for *rebuilding* it with",
-            "# docs/build_tutorial.py, which executes every cell.",
+            "# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb.",
+            "# nbformat and nbclient are only needed to *rebuild* a notebook with its",
+            "# builder, which executes every cell.",
             "",
             "-r requirements.txt",
             "",

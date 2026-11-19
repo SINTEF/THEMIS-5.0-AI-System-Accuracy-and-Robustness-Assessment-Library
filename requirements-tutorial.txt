@@ -3,9 +3,9 @@
 #     python tools/sync_requirements.py
 # tests/test_requirements.py fails if this file is out of date.
 
-# For docs/tutorial.ipynb. The notebook itself needs only the core plus
-# Jupyter; nbformat and nbclient are for *rebuilding* it with
-# docs/build_tutorial.py, which executes every cell.
+# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb.
+# nbformat and nbclient are only needed to *rebuild* a notebook with its
+# builder, which executes every cell.
 
 -r requirements.txt
 

@@ -1,0 +1,66 @@
+# Publish the tutorial notebooks as a static site, so that the analysis and the figures
+# can be read without cloning the repository or running anything.
+#
+# It publishes what is *committed*: the notebooks carry their outputs, put there by the
+# builders in docs/ executing every cell (D57). Nothing is executed here — the solar
+# tutorial needs a dataset that is not in the repository, so a CI run could not rebuild
+# it even if that were wanted, and publishing an unexecuted notebook would be worse than
+# publishing none.
+#
+# Requires GitHub Pages to be enabled for the repository, with "Source: GitHub Actions"
+# (Settings -> Pages). Until that is done this workflow builds and then fails at the
+# deploy step.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/*.ipynb"
+      - "tools/build_docs_site.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one half-done.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # nbconvert alone, not the tutorial extra: this job converts notebooks, it does
+      # not import the library or execute a cell.
+      - name: Install nbconvert
+        run: pip install --quiet "nbconvert>=7.16" "nbformat>=5.9"
+
+      # A notebook that is not committed is skipped with a warning rather than failing
+      # the build. Add --strict to make a missing tutorial an error instead.
+      - name: Export the notebooks
+        run: python tools/build_docs_site.py --out public
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
