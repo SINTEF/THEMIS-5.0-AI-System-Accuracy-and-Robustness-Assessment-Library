@@ -8,10 +8,11 @@ can be served from anywhere — GitHub Pages, an internal web server, or a local
     python tools/build_docs_site.py              # -> site/
     python tools/build_docs_site.py --out public # for a CI job that publishes `public/`
 
-It does **not** execute anything. The outputs it publishes are the ones already stored in
-the notebook, which the builders in ``docs/`` put there by executing every cell (D57). A
-notebook that is not present is skipped with a warning rather than failing the build, so
-that a CI job still publishes whatever is committed.
+It does **not** execute anything. The outputs it publishes are whatever is stored in the
+notebook — for the two tutorials with builders in ``docs/``, put there by executing every
+cell (D57); for ``safetycage_tutorial.ipynb``, which has no builder, whatever its author
+last ran. A notebook that is not present is skipped with a warning rather than failing
+the build, so that a CI job still publishes whatever is committed.
 """
 
 from __future__ import annotations
@@ -50,6 +51,14 @@ TUTORIALS = (
         "history and the weather expected over those seven days — so that “what "
         "happens when the weather forecast is wrong” becomes a robustness question "
         "with an answer someone can act on.",
+    ),
+    Tutorial(
+        "safetycage_tutorial.ipynb",
+        "Misclassification detection under distribution shift",
+        "Four safetycage detectors — MSP, DOCTOR, RED and SPARDACUS — fitted to one CNN "
+        "on histology tiles, tuned on the slide collection it was trained on, and then "
+        "asked whether they still catch its mistakes on tiles from patients it has "
+        "never seen. A random baseline says how much of that is skill.",
     ),
 )
 
@@ -91,9 +100,9 @@ INDEX = """<!doctype html>
 <body>
 <main>
   <h1>themis-assess · tutorials</h1>
-  <p class="lede">One model taken through every layer of the library, per task type.
-  Each page is the notebook as it was executed, figures included — nothing here is
-  re-run in your browser.</p>
+  <p class="lede">Worked examples, each taking one model end to end on real data. Every
+  page is the notebook exactly as it was executed, figures included — nothing here
+  is re-run in your browser.</p>
 {cards}
   <footer>
     Part of <strong>THEMIS 5.0</strong> (Horizon Europe grant 101121042). The library,
@@ -123,7 +132,7 @@ def _shown(path: Path) -> str:
         return str(path)
 
 
-def export(notebook: Path, out_dir: Path) -> Path:
+def export(notebook: Path, out_dir: Path, title: str) -> Path:
     """Convert one notebook to a standalone HTML page in ``out_dir``."""
     from nbconvert import HTMLExporter
     import nbformat
@@ -135,8 +144,11 @@ def export(notebook: Path, out_dir: Path) -> Path:
     exporter.exclude_input_prompt = True
     exporter.exclude_output_prompt = True
 
+    # Without this every page's tab reads "Notebook", which is useless once a reader has
+    # three of them open. nbconvert takes the title from the resources metadata.
     body, _ = exporter.from_notebook_node(
-        nbformat.read(notebook, as_version=4)
+        nbformat.read(notebook, as_version=4),
+        resources={"metadata": {"name": title, "path": str(notebook.parent)}},
     )
     target = out_dir / (notebook.stem + ".html")
     target.write_text(body, encoding="utf-8")
@@ -167,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             missing.append(tutorial.notebook)
             print(f"skipped {tutorial.notebook}: not present", file=sys.stderr)
             continue
-        page = export(notebook, out_dir)
+        page = export(notebook, out_dir, tutorial.title)
         size = page.stat().st_size / 1e6
         print(f"wrote {_shown(page)} ({size:.2f} MB)")
         cards.append(
