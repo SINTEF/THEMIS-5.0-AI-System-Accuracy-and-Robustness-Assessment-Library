@@ -45,7 +45,19 @@ HEADER = (
 #: installs an unrelated package. Building the forecasting tutorial's environment is what
 #: turned that up. The entry is what makes adding ``[timeseries]`` to a conda environment
 #: a one-line change rather than a silently wrong one.
-CONDA_NAMES: dict[str, str] = {"darts": "u8darts"}
+#:
+#: ``torch`` is the second. conda-forge packages PyTorch as ``pytorch``; a search for
+#: ``torch`` turns up only an unrelated ``yggdrasil.pytorch`` from 2021, so the generated
+#: file resolved to nothing and `conda env create` failed outright.
+CONDA_NAMES: dict[str, str] = {"darts": "u8darts", "torch": "pytorch"}
+
+#: Dependencies conda-forge does not package at all. They cannot go in the `dependencies:`
+#: list — conda fails the whole environment on one unknown name — but dropping them
+#: silently would hand someone an environment that is quietly missing a package the
+#: tutorial imports. So they are emitted as a comment naming the pip command instead.
+#:
+#: ``safetycage`` is SINTEF's own and is published to PyPI only.
+CONDA_ONLY_VIA_PIP: tuple[str, ...] = ("safetycage",)
 
 #: Build-backend packages. Not runtime dependencies, so they are not in pyproject's
 #: dependency lists — but they are what an editable install has to build with, and having
@@ -53,25 +65,106 @@ CONDA_NAMES: dict[str, str] = {"darts": "u8darts"}
 CONDA_BUILD_TOOLS = ("hatchling", "editables")
 
 
-def _conda_specs(core: list[str], extras: dict[str, list[str]]) -> list[str]:
+#: Extras that exist only to compose others, and so have nothing of their own to show in
+#: the annotated menu of `requirements-optional.txt`.
+COMPOSITE_EXTRAS = ("notebooks",)
+
+#: The project's own name, as it appears in a self-referential extra.
+SELF = "themis-assess"
+
+
+def _floor(requirement: str) -> tuple[int, ...]:
+    """The version floor of a ``pkg>=X.Y.Z`` requirement, for comparing two of them.
+
+    Anything it cannot read sorts lowest, so a requirement with no floor never displaces
+    one that has a real constraint.
+    """
+    _, _, constraint = requirement.partition(">=")
+    parts = constraint.strip().split(".")
+    out: list[int] = []
+    for part in parts:
+        digits = "".join(c for c in part if c.isdigit())
+        if not digits:
+            break
+        out.append(int(digits))
+    return tuple(out)
+
+
+def flatten(extras: dict[str, list[str]], name: str) -> list[str]:
+    """Every requirement an extra pulls in, with ``themis-assess[...]`` resolved.
+
+    An extra may refer to this package's own extras — ``themis-assess[jupyter,explain]``
+    — which pip 21.3+ and uv understand and conda does not, and which a requirements file
+    has no reason to make a reader resolve by hand. So the generated files carry the
+    flattened list while ``pyproject.toml`` keeps the composition that makes the extras
+    readable.
+
+    Cycles are not an error to resolve, only to loop on: a name already seen is skipped.
+
+    Two extras may ask for the same package with different floors — ``timeseries`` wants
+    ``statsmodels>=0.14`` and ``safetycage`` wants ``>=0.15.0``. Emitting both would be
+    valid for pip, which intersects them, but :func:`_conda_specs` de-duplicates by name
+    and keeps the first, which would silently drop the stricter floor. So the higher one
+    wins here, once, where it is visible.
+    """
+    collected: dict[str, str] = {}
+    seen_extras: set[str] = set()
+
+    def visit(extra: str) -> None:
+        if extra in seen_extras:
+            return
+        seen_extras.add(extra)
+        for requirement in extras.get(extra, []):
+            head = requirement.partition(">")[0].partition("=")[0].strip()
+            base, bracket, rest = head.partition("[")
+            if bracket and base.strip().replace("_", "-").lower() == SELF:
+                for referenced in rest.rstrip("]").split(","):
+                    visit(referenced.strip())
+                continue
+            key = head.replace("_", "-").lower()
+            previous = collected.get(key)
+            if previous is None or _floor(requirement) > _floor(previous):
+                collected[key] = requirement
+
+    visit(name)
+    return list(collected.values())
+
+
+def _conda_specs(
+    core: list[str], extras: dict[str, list[str]]
+) -> tuple[list[str], list[str]]:
     """Conda match specs for everything a working environment needs.
 
+    Returns ``(specs, via_pip)`` — what conda can install, and what it cannot.
+
     The version constraints are pyproject's, unchanged: `numpy>=1.26` is valid in both
-    grammars. Only the *name* can differ between PyPI and conda-forge, which is what
-    :data:`CONDA_NAMES` is for.
+    grammars. Two things do *not* carry over, and both broke the generated file once:
+
+    * the **name** can differ between PyPI and conda-forge (:data:`CONDA_NAMES`);
+    * **PEP 508 extras** — ``safetycage[torch,red]>=0.0.67`` — are not conda syntax at
+      all, so the bracketed part is stripped. A conda package has no extras; what the
+      extras pull in has to be named separately or installed with pip.
     """
-    wanted: list[str] = [*core, *extras.get("dev", []), *extras.get("tutorial", [])]
+    wanted: list[str] = [*core, *extras.get("dev", []), *flatten(extras, "notebooks")]
     specs: list[str] = []
+    via_pip: list[str] = []
     seen: set[str] = set()
     for requirement in wanted:
         name, _, constraint = requirement.partition(">")
         name = name.strip()
-        conda_name = CONDA_NAMES.get(name, name)
+        bare = name.partition("[")[0]  # drop a PEP 508 extras marker
+        bare = bare.strip()
+        if bare in CONDA_ONLY_VIA_PIP:
+            if requirement not in via_pip:
+                via_pip.append(requirement)
+            continue
+        conda_name = CONDA_NAMES.get(bare, bare)
         if conda_name in seen:
             continue
         seen.add(conda_name)
         specs.append(f"{conda_name}>{constraint}" if constraint else conda_name)
-    return specs + [tool for tool in CONDA_BUILD_TOOLS if tool not in seen]
+    specs += [tool for tool in CONDA_BUILD_TOOLS if tool not in seen]
+    return specs, via_pip
 
 
 def load() -> dict:
@@ -120,17 +213,23 @@ def render(config: dict) -> dict[str, str]:
         ]
     )
 
-    # -- the tutorial notebook ----------------------------------------------
-    files["requirements-tutorial.txt"] = _block(
+    # -- the notebooks in docs/ ----------------------------------------------
+    # All three, flattened: one file rather than three near-identical ones. To install
+    # what a single notebook needs, use its own extra —
+    # `pip install -e ".[tutorial-forecasting]"`.
+    files["requirements-notebooks.txt"] = _block(
         [
             HEADER,
-            "# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb.",
+            "# Everything the three notebooks in docs/ need. For one of them alone, use",
+            "# its extra instead: pip install -e \".[tutorial-classification]\",",
+            "# \".[tutorial-forecasting]\" or \".[tutorial-safetycage]\".",
+            "#",
             "# nbformat and nbclient are only needed to *rebuild* a notebook with its",
             "# builder, which executes every cell.",
             "",
             "-r requirements.txt",
             "",
-            *sorted(extras.get("tutorial", [])),
+            *sorted(flatten(extras, "notebooks")),
         ]
     )
 
@@ -142,6 +241,10 @@ def render(config: dict) -> dict[str, str]:
         "explain": "error attribution — the surrogate, SHAP values, tsfresh features",
         "safetycage": "model-centric robustness metrics (survey §5.2)",
         "mpl": "matplotlib, for the partial-dependence path only",
+        "jupyter": "the notebook tooling the three tutorials share",
+        "tutorial-classification": "docs/tutorial_classification.ipynb",
+        "tutorial-forecasting": "docs/forecasting_tutorial.ipynb",
+        "tutorial-safetycage": "docs/safetycage_tutorial.ipynb",
     }
     lines = [
         HEADER,
@@ -157,10 +260,10 @@ def render(config: dict) -> dict[str, str]:
         "-r requirements.txt",
     ]
     for name in sorted(extras):
-        if name in ("dev", "tutorial"):
-            continue  # each has its own file
+        if name == "dev" or name in COMPOSITE_EXTRAS:
+            continue  # dev has its own file; a composite one has nothing of its own
         lines += ["", f"# [{name}] — {notes.get(name, '')}".rstrip()]
-        lines += [f"# {requirement}" for requirement in extras[name]]
+        lines += [f"# {requirement}" for requirement in flatten(extras, name)]
     files["requirements-optional.txt"] = _block(lines)
 
     # -- conda --------------------------------------------------------------
@@ -178,7 +281,17 @@ def render(config: dict) -> dict[str, str]:
     # `editables` are included because they are what building the editable install needs:
     # with both already present, `pip install -e . --no-deps --no-build-isolation` touches
     # the network zero times.
-    conda_specs = _conda_specs(core, extras)
+    conda_specs, via_pip = _conda_specs(core, extras)
+    pip_note = (
+        [
+            "#",
+            "# NOT ON conda-forge, so not in the list below. Install after activating:",
+            *[f"#     pip install '{spec}'" for spec in via_pip],
+            "# The tutorials that import them will fail without this step.",
+        ]
+        if via_pip
+        else []
+    )
     files["environment.yml"] = _block(
         [
             "# GENERATED by tools/sync_requirements.py from pyproject.toml — do not edit.",
@@ -198,8 +311,10 @@ def render(config: dict) -> dict[str, str]:
             "# another directory does not.",
             "#",
             "# Versions are generated from pyproject.toml, so the conda specs and the",
-            "# requirements files cannot disagree. If conda-forge is missing a package,",
-            "# drop it from here and `pip install` it after activating.",
+            "# requirements files cannot disagree. Names are not always the same on both",
+            "# indexes — conda-forge calls darts `u8darts` and PyTorch `pytorch` — and",
+            "# tools/sync_requirements.py maps them.",
+            *pip_note,
             "name: themis-assess",
             "channels:",
             "  - conda-forge",

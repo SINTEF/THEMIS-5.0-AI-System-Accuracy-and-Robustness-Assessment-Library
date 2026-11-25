@@ -90,10 +90,11 @@ def test_the_extras_menu_is_commented_out(config):
     assert active == ["-r requirements.txt"]
 
     # but every extra is present as a commented line, so nothing is silently omitted
-    for extra, requirements in config["project"]["optional-dependencies"].items():
-        if extra in ("dev", "tutorial"):
-            continue  # each has its own file
-        for requirement in requirements:
+    extras = config["project"]["optional-dependencies"]
+    for extra in extras:
+        if extra == "dev" or extra in sync_requirements.COMPOSITE_EXTRAS:
+            continue  # dev has its own file; a composite extra has nothing of its own
+        for requirement in sync_requirements.flatten(extras, extra):
             assert f"# {requirement}" in text, f"{requirement} missing from the menu"
 
 
@@ -146,10 +147,67 @@ def _extras_referenced(text: str) -> set[str]:
     return found
 
 
-def test_the_tutorial_file_covers_the_tutorial_extra(config):
-    text = (ROOT / "requirements-tutorial.txt").read_text(encoding="utf-8")
-    for requirement in config["project"]["optional-dependencies"]["tutorial"]:
+def test_the_notebook_file_covers_every_notebook_extra(config):
+    """`requirements-notebooks.txt` is the flattened union of the three tutorial extras.
+
+    Flattened, because those extras compose by referring to this package's own extras —
+    `themis-assess[jupyter,timeseries,explain]` — which a requirements file has no reason
+    to make a reader resolve by hand, and which conda cannot resolve at all.
+    """
+    text = (ROOT / "requirements-notebooks.txt").read_text(encoding="utf-8")
+    extras = config["project"]["optional-dependencies"]
+    for requirement in sync_requirements.flatten(extras, "notebooks"):
         assert requirement in text, requirement
+
+
+def test_every_notebook_in_docs_has_an_extra_naming_it(config):
+    """One extra per notebook, named after it — the point of the 2026-11-25 rename.
+
+    A single `tutorial` extra used to stand for all of them, which read as "what the
+    tutorials need" while holding Jupyter plus the safetycage notebook's dependencies.
+    Anyone who followed it to the forecasting notebook got an environment without darts,
+    and the failure surfaced as a missing import three sections in.
+    """
+    extras = config["project"]["optional-dependencies"]
+    notebooks = sorted(p.stem for p in (ROOT / "docs").glob("*.ipynb"))
+    assert notebooks, "no notebooks found in docs/"
+    for stem in notebooks:
+        # tutorial_classification -> classification; forecasting_tutorial -> forecasting
+        subject = stem.replace("_tutorial", "").replace("tutorial_", "")
+        expected = f"tutorial-{subject.replace('_', '-')}"
+        assert expected in extras, (
+            f"docs/{stem}.ipynb has no extra naming it; expected [{expected}] in "
+            f"pyproject.toml, found {sorted(extras)}"
+        )
+
+
+def test_the_composite_extra_pulls_in_each_tutorial(config):
+    extras = config["project"]["optional-dependencies"]
+    def names(requirements):
+        return {r.partition(">")[0].partition("[")[0].strip().lower() for r in requirements}
+
+    # By package name, not by exact string: where two tutorials want the same package
+    # with different floors the union keeps the stricter one, so `statsmodels>=0.14`
+    # from `timeseries` is deliberately not present as written.
+    flattened = names(sync_requirements.flatten(extras, "notebooks"))
+    for name in ("tutorial-classification", "tutorial-forecasting", "tutorial-safetycage"):
+        missing = names(sync_requirements.flatten(extras, name)) - flattened
+        assert not missing, f"{name} contributes {sorted(missing)}, lost from [notebooks]"
+
+
+def test_a_package_wanted_twice_keeps_the_stricter_floor(config):
+    """`timeseries` wants statsmodels>=0.14 and `safetycage` wants >=0.15.0.
+
+    Emitting both is valid for pip, which intersects them, but the conda spec list
+    de-duplicates by name and keeps the first — which would silently drop the stricter
+    floor depending on dictionary order.
+    """
+    extras = config["project"]["optional-dependencies"]
+    statsmodels = [
+        r for r in sync_requirements.flatten(extras, "notebooks")
+        if r.startswith("statsmodels")
+    ]
+    assert statsmodels == ["statsmodels>=0.15.0"], statsmodels
 
 
 def _conda_specs_in(text: str) -> list[str]:
@@ -177,15 +235,51 @@ def test_the_conda_specs_come_from_pyproject(config):
     for requirement in [
         *project["dependencies"],
         *project["optional-dependencies"]["dev"],
-        *project["optional-dependencies"]["tutorial"],
+        *sync_requirements.flatten(project["optional-dependencies"], "notebooks"),
     ]:
         name = requirement.partition(">")[0].strip()
-        expected = sync_requirements.CONDA_NAMES.get(name, name)
+        # A PEP 508 extras marker is not conda syntax, so the generator strips it.
+        bare = name.partition("[")[0].strip()
+
+        if bare in sync_requirements.CONDA_ONLY_VIA_PIP:
+            # conda-forge does not have it. It must be absent from `dependencies:` —
+            # one unknown name fails the whole `conda env create` — and named in the
+            # comment instead, so nobody ends up with an environment quietly missing it.
+            assert not [s for s in specs if s.partition(">")[0].partition("[")[0] == bare], (
+                f"{bare} is not on conda-forge but environment.yml lists it as a conda "
+                f"dependency; `conda env create` would fail on the whole file"
+            )
+            assert f"pip install '{requirement}'" in text, (
+                f"{bare} is left out of environment.yml without telling the reader how "
+                f"to install it; expected a `pip install '{requirement}'` comment"
+            )
+            continue
+
+        expected = sync_requirements.CONDA_NAMES.get(bare, bare)
         matching = [spec for spec in specs if spec.partition(">")[0] == expected]
         assert matching, f"{expected} is missing from environment.yml"
         assert matching[0] == requirement.replace(name, expected, 1), (
             f"environment.yml pins {matching[0]!r} but pyproject says {requirement!r}"
         )
+
+
+def test_no_conda_spec_carries_a_pep_508_extras_marker():
+    """`safetycage[torch,red]>=0.0.67` is a valid pip requirement and not a conda one.
+
+    conda match specs have no notion of extras, so a bracketed name resolves to nothing
+    and fails the environment. This shipped once: the `tutorial` extra grew `torch` and
+    `safetycage[...]`, both went into `environment.yml` verbatim, and `conda env create`
+    stopped working — found by a person trying to build a 3.13 environment, not by a test.
+    """
+    text = (ROOT / "environment.yml").read_text(encoding="utf-8")
+    offenders = [spec for spec in _conda_specs_in(text) if "[" in spec]
+    assert not offenders, f"conda cannot parse these: {offenders}"
+
+
+def test_the_conda_names_that_differ_are_actually_mapped():
+    """The two names that differ between PyPI and conda-forge, as a regression guard."""
+    assert sync_requirements.CONDA_NAMES["darts"] == "u8darts"
+    assert sync_requirements.CONDA_NAMES["torch"] == "pytorch"
 
 
 def test_the_conda_environment_can_run_the_tutorial():

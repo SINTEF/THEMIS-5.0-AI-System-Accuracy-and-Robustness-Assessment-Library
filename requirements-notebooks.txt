@@ -3,18 +3,25 @@
 #     python tools/sync_requirements.py
 # tests/test_requirements.py fails if this file is out of date.
 
-# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb.
+# Everything the three notebooks in docs/ need. For one of them alone, use
+# its extra instead: pip install -e ".[tutorial-classification]",
+# ".[tutorial-forecasting]" or ".[tutorial-safetycage]".
+#
 # nbformat and nbclient are only needed to *rebuild* a notebook with its
 # builder, which executes every cell.
 
 -r requirements.txt
 
+darts>=0.39
 ipykernel>=7.4.0
 jupyter>=1.0
 matplotlib>=3.11.2
 nbclient>=0.9
 nbformat>=5.9
 safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
+shap>=0.45
 statsmodels>=0.15.0
 torch>=2.14.1
 tqdm>=4.70.1
+tsfresh>=0.20
+xgboost>=2.0

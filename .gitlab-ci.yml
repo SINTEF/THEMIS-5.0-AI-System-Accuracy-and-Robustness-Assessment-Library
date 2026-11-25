@@ -106,7 +106,7 @@ tutorial:
   stage: test
   image: python:3.13
   before_script:
-    - pip install --quiet -e ".[tutorial]"
+    - pip install --quiet -e ".[tutorial-classification]"
     - pip install --quiet nbmake pytest
   script:
     - pytest --nbmake docs/tutorial_classification.ipynb

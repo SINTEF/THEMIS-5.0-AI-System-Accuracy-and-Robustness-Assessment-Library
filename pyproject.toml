@@ -31,18 +31,23 @@ explain = ["tsfresh>=0.20", "xgboost>=2.0", "shap>=0.45"]
 # statsmodels is also pulled in by safetycage[spardacus]; listed for its version floor.
 safetycage = ["safetycage[torch,red,spardacus,mahalanobis]>=0.0.67", "statsmodels>=0.15.0"]
 mpl = ["matplotlib>=3.11.2"]
-# For docs/tutorial_classification.ipynb and docs/safetycage_tutorial.ipynb. nbformat and
-# nbclient are only needed to *rebuild* a notebook with its builder, which executes every cell.
-tutorial = [
-    "jupyter>=1.0",
-    "ipykernel>=7.4.0",
-    "matplotlib>=3.11.2",
-    "torch>=2.14.1",
-    "safetycage[torch,red,spardacus,mahalanobis]>=0.0.67",
-    "statsmodels>=0.15.0",     # for SPARDACUS
+# --- the notebooks in docs/ ----------------------------------------------------------
+# One extra per notebook, named after it. The extras above are *capabilities* of the
+# library; these are *what a given tutorial needs to run*, which is a different question
+# and the one someone opening a notebook is actually asking. The single name `tutorial`
+# that used to stand for all of them answered neither: it read as "what the tutorials
+# need" while in fact holding Jupyter plus the safetycage notebook's dependencies, so
+# anyone following it to the forecasting notebook got an environment without darts.
+#
+# They compose by referring to this package's own extras, which pip 21.3+ and uv resolve,
+# and which tools/sync_requirements.py flattens when it generates the requirements files.
+jupyter = ["jupyter>=1.0", "ipykernel>=7.4.0", "nbformat>=5.9", "nbclient>=0.9"]
+tutorial-classification = ["themis-assess[jupyter]"]
+tutorial-forecasting = ["themis-assess[jupyter,timeseries,explain]"]
+tutorial-safetycage = [
+    "themis-assess[jupyter,safetycage,mpl]",
+    "torch>=2.14.1",           # safetycage[torch] pulls it; this is the version floor
     "tqdm>=4.70.1",
-    "nbformat>=5.9",
-    "nbclient>=0.9",
 ]
 # `dev` is an extra rather than a PEP 735 dependency-group on purpose. A group is the
 # tidier home for test tooling, but it is only reachable as `pip install --group dev`,
@@ -51,6 +56,12 @@ tutorial = [
 # nor ruff against a group, with only a warning nobody reads. Correctness of the
 # documented command beats packaging taste.
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+# All three notebooks at once, for anyone who would rather not choose:
+#
+#     uv sync --extra notebooks        /        pip install -e ".[notebooks]"
+notebooks = [
+    "themis-assess[tutorial-classification,tutorial-forecasting,tutorial-safetycage]"
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/themis_assess"]

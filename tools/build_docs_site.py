@@ -19,10 +19,14 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+# A sibling in tools/; the script directory is on sys.path when this runs as a script.
+import notebook_privacy
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
@@ -179,6 +183,22 @@ def main(argv: list[str] | None = None) -> int:
             missing.append(tutorial.notebook)
             print(f"skipped {tutorial.notebook}: not present", file=sys.stderr)
             continue
+        # Last line of defence. tests/test_notebook_privacy.py catches this earlier, but
+        # publishing is the step that makes a leak public, so it refuses on its own
+        # rather than trusting that the test was run.
+        leaks = notebook_privacy.offenders(
+            json.loads(notebook.read_text(encoding="utf-8"))
+        )
+        if leaks:
+            print(
+                f"REFUSING to publish {tutorial.notebook}: {len(leaks)} output line(s) "
+                f"carry an absolute local path, which would go on the open web.\n"
+                + "\n".join(f"    {line[:160]}" for line in leaks[:5])
+                + "\n  Run: python tools/notebook_privacy.py",
+                file=sys.stderr,
+            )
+            return 1
+
         page = export(notebook, out_dir, tutorial.title)
         size = page.stat().st_size / 1e6
         print(f"wrote {_shown(page)} ({size:.2f} MB)")

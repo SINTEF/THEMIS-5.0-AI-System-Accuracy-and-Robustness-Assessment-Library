@@ -671,7 +671,7 @@ registry. `RobustnessAssessor` gained `perturbation_registry=`, which is where n
 resolved when given. Passing two registries raises rather than one silently winning.
 
 **D57 — The tutorial is generated and executed, not hand-written.** `docs/tutorial_classification.ipynb`
-is built by `docs/build_tutorial.py`, which executes every cell and fails loudly on any
+is built by `docs/build_classification_tutorial.py`, which executes every cell and fails loudly on any
 exception, so the notebook cannot drift from the library. Writing it also caught four places
 where the narrative asserted something the output contradicted — the surrogate refusing
 rather than attributing, temperature scaling's direction, a tipping point never reached, and
@@ -682,7 +682,7 @@ describing what you expect it to say.
 **D58 — Requirements files are generated from `pyproject.toml`, and the suite runs with
 the package uninstalled.** `pyproject.toml` stays the single source of truth for
 dependencies, and `requirements.txt`, `requirements-dev.txt`,
-`requirements-tutorial.txt`, `requirements-optional.txt` and `environment.yml` are
+`requirements-notebooks.txt`, `requirements-optional.txt` and `environment.yml` are
 generated from it by `tools/sync_requirements.py`. `tests/test_requirements.py` fails when
 they are stale.
 
@@ -904,9 +904,11 @@ the cost of guessing wrong is a rejected narrative, not a wrong one.
 ## Decisions taken while building the forecasting tutorial (D69-D73)
 
 The library claimed both task types and documented one. The counterpart was built on
-darts' `ElectricityDataset`, generated and executed by `docs/build_forecasting_tutorial.py`
-under D57's rule. Five decisions came out of building it, and all five are things a reader
-of the notebook would otherwise have to reconstruct.
+darts' `ElectricityDataset`, generated and executed under D57's rule by a builder of the
+same name as today's — the file was deleted on 2026-11-19 and the name reused, so read
+every `build_forecasting_tutorial.py` in this section as the electricity-load one, which
+lives only in the git history now. Five decisions came out of building it, and all five
+are things a reader of the notebook would otherwise have to reconstruct.
 
 > **That notebook was retired on 2026-11-19** and the forecasting tutorial is now the
 > solar one (D76, D77). The task it posed — next-step electricity load from past load —
@@ -914,8 +916,9 @@ of the notebook would otherwise have to reconstruct.
 > depended on the answer, so none of the library's verdicts had a reader. D69–D73 below
 > are unaffected; every one of them was carried into the solar tutorial, which is why
 > they are recorded here as decisions rather than as notes on a deleted file. The builder
-> survives, untracked, and now writes `forecasting_tutorial_electricity.ipynb` so that it
-> cannot overwrite the notebook that took its old path.
+> was deleted with it, once both had been committed and the history could be relied on to
+> keep them. The names were then reused: `build_forecasting_tutorial.py` is the solar
+> builder from that date on, and one builder per notebook, named after it, is the rule.
 
 **D69 — one entity per *window*, not per series.** The library's entity axis is
 `n_entities`, and a forecasting dataset invites spending it on the wrong thing. Treating
@@ -1158,7 +1161,7 @@ rejected — and the author of a hand edit is the only one who knows whether it 
 improvement or an experiment.
 
 *Resolved once, 2026-11-19.* The solar notebook had accumulated a rewritten commentary
-and a deleted section, so `build_solar_forecasting_tutorial.py` had its cell calls
+and a deleted section, so `build_forecasting_tutorial.py` had its cell calls
 regenerated from the notebook — mechanically, cell by cell, header and `build()` kept —
 and `--check` then reported no difference. This is the shape the resolution should take
 every time: the builder is brought up to the notebook in one deliberate step, not a

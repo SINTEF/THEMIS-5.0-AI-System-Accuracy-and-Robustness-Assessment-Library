@@ -1,11 +1,23 @@
 """Build (and execute) docs/tutorial_classification.ipynb.
 
 The notebook is generated from this file rather than hand-edited, so that its code is
-executed on every rebuild and cannot drift from the library. Run:
+executed on every rebuild and cannot drift from the library (D57). Run:
 
-    python docs/build_tutorial.py
+    python docs/build_classification_tutorial.py
 
-It writes ``docs/tutorial_classification.ipynb`` with outputs, and fails loudly if any cell raises.
+It writes ``docs/tutorial_classification.ipynb`` with outputs, and fails loudly if any
+cell raises. Flags:
+
+    --check        compare against the notebook and stop; write nothing
+    --force        overwrite hand edits anyway, saying so
+    --no-execute   write the cells without running them
+
+It will **refuse to run** if the notebook has been edited by hand, printing a diff of
+what it would have overwritten (``docs/notebook_guard.py``, D78). That rule is general:
+an edit made in a notebook is not to be destroyed by a builder. Resolving a difference
+means bringing *this* file up to the notebook — which is what happened on 2026-11-25,
+when the cells below were regenerated from the notebook after a long stretch of hand
+editing had left the two 88 cells against 59.
 """
 
 from __future__ import annotations
@@ -15,7 +27,11 @@ from pathlib import Path
 
 import nbformat as nbf
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from notebook_guard import refuse_if_hand_edited  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
+TARGET = HERE / "tutorial_classification.ipynb"
 
 md = nbf.v4.new_markdown_cell
 code = nbf.v4.new_code_cell
@@ -31,7 +47,6 @@ def c(text: str) -> None:
     CELLS.append(code(text.strip("\n")))
 
 
-# ==========================================================================
 m(
     """
 # Assessing a model end to end
@@ -48,12 +63,11 @@ fine-needle aspirate images of breast masses, 30 features computed from cell nuc
 error and a worst-case), and a diagnosis of **malignant** or **benign**. It ships with
 scikit-learn, so nothing is downloaded.
 
-A random forest reaches around 96% on it without tuning, which is exactly why it is a
-good teaching case. **A model that looks finished is where an assessment earns its
+A random forest reaches a classification accuracy of around 94% on test data without tuning, which is exactly why it is a good teaching case. **A model that looks finished is where an assessment earns its
 keep**, because the interesting questions are the ones accuracy cannot answer:
 
-- Is 96% enough? Enough *for what*?
-- Which 4% does it get wrong, and do they have anything in common?
+- Is 94% classification accuracy enough? Enough *for what*?
+- Which 6% does it get wrong, and do they have anything in common?
 - What happens when the imaging pipeline changes slightly, or a measurement is missing?
 - Which single input is the model leaning on hardest?
 - If its stated confidence is 0.9, is it right 90% of the time?
@@ -71,7 +85,7 @@ If that fights your existing environment, a notebook-specific one is quick:
 ```bash
 python -m venv .venv-tutorial
 .venv-tutorial/bin/pip install -e . jupyter
-.venv-tutorial/bin/jupyter notebook docs/tutorial_classification.ipynb
+.venv-tutorial/bin/jupyter notebook docs/tutorial.ipynb
 ```
 """
 )
@@ -101,6 +115,9 @@ import numpy as np
 from sklearn.datasets import load_breast_cancer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+
+import plotly.io as pio
+pio.renderers.default = "notebook_connected"
 
 import themis_assess as ta
 
@@ -171,7 +188,7 @@ criteria = ta.AcceptanceCriteria(
         ta.Requirement(
             "recall",
             acceptable=0.98,
-            rationale="recall here is on the benign class; see the note below",
+            rationale="recall here is on the benign class; see the note above",
             critical=False,
         ),
         ta.Requirement(
@@ -221,8 +238,7 @@ m(
 Read the verdict, not the metrics.
 
 `balanced_accuracy` is the critical requirement and it is the one to watch: with a 63/37
-split, plain accuracy is flattered by the majority class, and balanced accuracy is the
-average of the two per-class recalls, so it cannot be.
+split, plain accuracy is heavily affected by the accuracy on the majority class, while the balanced accuracy is the average of the two per-class recalls, so it cannot be.
 
 The `recall` requirement is the trap in this dataset, deliberately left in. scikit-learn
 computes recall for the *positive* label, which here is **benign** — so that number says
@@ -244,17 +260,15 @@ plot_metrics_table(accuracy.acceptance)
 m(
     """
 The verdict is *in* the table — value, requirement, pass or fail, and by how much — with
-a symbol as well as a colour, so it survives a black-and-white print and a colour-blind
-reader. Rows with no requirement are left neutral rather than coloured as warnings: they
-were simply not part of the criteria, and painting them orange buries the rows that
-actually failed.
+a symbol as well as a colour. Rows with no requirement are left neutral rather than coloured as warnings: they
+were simply not part of the criteria.
 """
 )
 
 # ==========================================================================
 m(
     """
-## 3. Which class does it miss, and what does it confuse?
+## 3. Which class does the model miss, and where is the model confused?
 
 The aggregate is an average over the classes. Here is the breakdown it averages.
 """
@@ -274,6 +288,8 @@ m(
 `malignant`. It is the share of malignant masses the model called benign, and it is
 several times the aggregate error rate — which the aggregate, by construction, cannot
 show you.
+
+Below shows the confusion matrix, which shows clearly where the model misclassifies by looking at the values outside the main diagonal.
 """
 )
 
@@ -287,8 +303,7 @@ plot_confusion_matrix(accuracy.confusion)
 
 c(
     """
-# The most actionable output of a confusion matrix, and the one none of this library's
-# four ancestor repositories returned: the specific mistakes, worst first, ranked by
+# The most actionable output of a confusion matrix: the specific mistakes, worst first, ranked by
 # share of the true class rather than by raw count.
 accuracy.diagnostics.get("top_confusions")
 """
@@ -299,7 +314,7 @@ m(
     """
 ## 4. Is the confidence trustworthy?
 
-A model can rank cases perfectly and still state its confidence wrongly. That matters the
+A model can predict cases perfectly and still state its confidence wrongly. That matters the
 moment a probability is *acted on* — a review threshold, a triage queue, an
 expected-cost calculation — and not at all if only the top-scoring class is used. So it is
 worth knowing which situation you are in before deciding whether to care.
@@ -323,11 +338,11 @@ calibration.figure
 
 m(
     """
+We see that the prediction model is well callibrated when it is confident, even somewhat underconfident. However for the least confident values, the prediction model is overconfident.
+
 Note that `assess_calibration` returned a `Bundle`: the figure **and** the analysis behind
 it. That is a deliberate rule throughout `themis_assess.viz` — a function that computes
-something and plots it must return both. In the repositories this library was extracted
-from, a box-plot function ran an ANOVA on the way past and left the p-value reachable only
-through a dictionary keyed on the plot's title.
+something and plots it must return both.
 
 The bin count is reported beside the ECE, and it should be: too few bins hide
 miscalibration by averaging over-confident and under-confident regions together, too many
@@ -338,7 +353,7 @@ If calibration needs fixing, **temperature scaling** is the standard first move:
 the logits by a single fitted scalar. Its appeal is that it **cannot change a prediction**
 — it is monotone, so every argmax stays where it was — and its cost is one number fitted
 on held-out data. Below is the honest version of that demonstration, fitted on the
-calibration split, and it does not go the way a tutorial would like.
+calibration split.
 """
 )
 
@@ -450,6 +465,8 @@ Notice what the library did not do. There *is* a numeric difference, and it was 
 reported as a finding, because the test says it is indistinguishable from noise. A
 difference that fails its own test is not evidence — and 17 outliers is far too few to
 conclude anything from either way.
+
+Below, we define ambigious samples as where the entropy, a measure of the extent of uncertainty in the prediction, is larger than a given threshold, and we compare the error rate for the ambigious samples with the rest of the samples. 
 """
 )
 
@@ -479,6 +496,15 @@ told you not to staff that queue.
 """
 )
 
+m(
+    """
+**How the model error may vary across feature values**
+
+Sometimes, the prediction model's accuracy can vary based on a feature's value.
+A clear example is given below.
+"""
+)
+
 c(
     """
 from themis_assess.viz import assess_feature_bins
@@ -494,7 +520,7 @@ bins.figure
 
 # ==========================================================================
 m(
-    """
+    '''
 ## 6. Robustness — what happens when the data shifts
 
 Everything so far describes the model on *this* test set. Robustness asks what happens
@@ -514,7 +540,7 @@ anything runs.
 **The tolerance has to come from you.** Same principle as the acceptance criteria, and
 survey §8 is explicit that this is the one element no evaluation instrument can supply:
 "the tolerance ... must come from the requirements of the deployment itself."
-"""
+'''
 )
 
 c(
@@ -557,9 +583,9 @@ print(robustness.summary())
 
 m(
     """
-First, the number that will confuse a reader: `relative_robustness` shows about **2.5**
-in the summary while the tolerance verdict reads **0.53**. Those are two different
-quantities. The verdict is the *worst cell*, and the 2.5 is the sum-based aggregate over
+First, the number that will confuse a reader: `relative_robustness` shows **2.5827**
+in the summary while the tolerance verdict reads **0.5413**. Those are two different
+quantities. The verdict is the *worst cell*, and the 2.5827 is the sum-based aggregate over
 three perturbations — survey §8 flags exactly this, that a sum-based aggregate scales with
 the size of the perturbation set and so is comparable only within a fixed one. It is why
 `RobustnessResult` records its `perturbation_set`, and why the comparison layer in §10
@@ -893,7 +919,7 @@ the power to detect a difference that would matter clinically.
 # ==========================================================================
 m(
     """
-## 10. Model x, model y or model z?
+## 10. Comparison of model performance using a polar chart
 
 The comparison every project actually needs, and the one that is easiest to get wrong.
 
@@ -994,7 +1020,7 @@ compared = assess_models(
         "auc",
         "expected_calibration_error",
         "brier_score",
-        "relative_robustness",
+        "absolute_relative_robustness",
     ],
 )
 compared.figure
@@ -1021,559 +1047,6 @@ print()
 print("could not be compared:")
 for metric, reason in sorted(comparison.dropped.items()):
     print(f"  {metric}: {reason}")
-"""
-)
-
-# ==========================================================================
-m(
-    """
-## 11. The report — everything in one place, and what is wrong with it
-
-The last layer collects whatever you ran into one object, serialises it to a plain
-dictionary with a declared schema, and — the part worth the most — ranks what is wrong.
-
-The **findings** layer exists because a results dictionary answers "what are the numbers"
-and nobody reads far enough to notice that the worst subgroup is eleven points behind the
-aggregate. Each finding carries a severity, the evidence it rests on, and a suggested
-direction. They are deliberately mechanical: every one names the numbers it came from, so
-you can disagree with it by checking them.
-
-They are also the structure a summarising language model needs. Handing a model several
-hundred raw numbers and asking what is weak gives a different answer every run; handing it
-findings leaves it the job it is good at — turning
-`worst-group accuracy 0.68 against aggregate 0.79, chi-square p = 0.004` into a sentence a
-clinician can read.
-"""
-)
-
-c(
-    """
-report = ta.build_report(
-    model_name="random_forest",
-    accuracy=by_size,                     # the assessment with the subgroup breakdown
-    robustness=robustness,
-    sensitivity=[sensitivity],
-    groups={"by_tumour_size": groups.analysis},
-    context={
-        "dataset": "breast cancer Wisconsin (diagnostic), UCI id 17",
-        "split": "stratified random holdout, 30% test, seed 0",
-        "subgroups": "terciles of mean area",
-        "note": "tutorial run — the criteria are illustrative, not a clinical sign-off",
-    },
-)
-print(report.summary())
-"""
-)
-
-c(
-    """
-for finding in report.findings():
-    print(f"[{finding.severity:<8}] {finding.area:<12} {finding.headline}")
-"""
-)
-
-c(
-    """
-worst = report.findings()[0]
-print(worst.headline)
-print()
-print(worst.detail)
-print()
-print("evidence:", worst.evidence)
-print()
-print("suggestion:", worst.suggestion)
-"""
-)
-
-m(
-    """
-### The report checks itself
-
-Survey §8 lists ten ways a robustness claim can mislead, and most of them are mechanically
-checkable. `check_report` runs them against your own report: a relative drop with no
-absolute value beside it, `mCE` without `mRCE`, an aggregate over an unnamed perturbation
-set, a composite without its components, one severity in place of a curve, an aggregate
-with no breakdown, calibration measured only on clean data, an operating-point metric with
-no threshold named, a distribution distance among the robustness scores, coverage without
-width.
-
-They warn rather than raise — a library that refused here would stop an honest exploratory
-run, and §8 is about what gets *published*, which this code cannot observe. The issues land
-in the findings under `area: "reporting"`, so ignoring one is a decision rather than an
-accident.
-"""
-)
-
-c(
-    """
-issues = ta.check_report(report.to_dict())
-if issues:
-    for issue in issues:
-        print(f"[{issue.severity}] {issue.rule}")
-        print(f"    {issue.detail}")
-        print(f"    → {issue.suggestion}")
-        print()
-else:
-    print("No §8 reporting issues: this report states everything a robustness claim needs.")
-"""
-)
-
-c(
-    """
-payload = report.to_dict()
-print("sections:", sorted(payload))
-print()
-print("findings by severity:", payload["summary"]["by_severity"])
-print("findings by area:    ", payload["summary"]["by_area"])
-print()
-# The glossary travels with the numbers, so a reader never has to look up a direction.
-card = payload["glossary"]["relative_robustness"]
-for key, value in card.items():
-    print(f"  {key}: {value}")
-"""
-)
-
-c(
-    """
-path = report.save("reports/tutorial_random_forest.json")
-print("written:", path, f"({path.stat().st_size / 1024:.0f} KB)")
-"""
-)
-
-# ==========================================================================
-m(
-    """
-## 12. A readable summary, for a named reader
-
-Everything so far is a number or a picture. This is the layer that turns them into prose
-someone will actually read — and it is split into three parts, only one of which involves
-a language model at all.
-
-**(a) State what was measured.** Templates, with the numbers substituted from each
-finding's evidence. Nothing is generated, so nothing can be invented. This is what runs
-below: no model is configured, and the output is complete.
-
-**(b) Write it as a narrative for a particular reader.** The one job a small local model
-does well. It is optional, verified, and discarded on failure — see below.
-
-**(c) Recommend what to do.** From a YAML file that people write and review. A model may
-select and order entries; it may never author one. What to do about a weak model is
-knowledge about *your* deployment, and a model asked to invent it produces fluent,
-unfounded advice — the hallucination that matters most, because recommendations are what
-people act on.
-
-The reader is a parameter, and it shapes the templates too, not only the model's prompt.
-That is deliberate: if the audience only reached the prompt, the fallback would produce
-engineer prose for a clinician, and a fallback nobody accepts is a fallback that makes
-the model mandatory.
-"""
-)
-
-c(
-    """
-from themis_assess.summary import summarise
-
-clinical = summarise(report, audience="clinician")
-print(clinical.to_markdown(include_evidence=False))
-"""
-)
-
-m(
-    """
-Now the same assessment, same findings, same numbers — written for the person who would
-change the model.
-"""
-)
-
-c(
-    """
-technical = summarise(report, audience="ml_engineer")
-print(technical.to_markdown(include_actions=False, include_evidence=False))
-"""
-)
-
-m(
-    """
-Note what differs and what does not. The **findings are identical** — the same five
-observations, in the same severity bands. What changes is the order they arrive in
-(a clinician meets the subgroup findings first, an engineer the robustness ones), the
-number format, the metric names, and which metric each sentence leads with.
-
-That last one is subtler than it looks. The widest subgroup gap by proportion on this
-model is in the *negative log-likelihood* — correct as an answer to "which metric moved
-most", and useless to tell a clinician. So a reader who works in percentages leads with a
-metric that can be one. And a percentage is offered only where the metric registry bounds
-the metric on [0, 1]: rendering a log-likelihood of 0.29 as "29%" would be confident
-nonsense, and formatting by magnitude alone cannot tell the two cases apart.
-"""
-)
-
-c(
-    """
-from themis_assess.summary import CLINICIAN, ML_ENGINEER
-
-for reader in (CLINICIAN, ML_ENGINEER):
-    print(f"{reader.name}:")
-    print(f"  bounded   balanced_accuracy = 0.9266 -> "
-          f"{reader.format_value('balanced_accuracy', 0.9266)}")
-    print(f"  unbounded neg. log-likelihood = 0.2916 -> "
-          f"{reader.format_value('negative_log_likelihood', 0.2916)}")
-    print(f"  leads with: {sorted(['negative_log_likelihood', 'balanced_accuracy'], key=reader.prefers_metric)[0]}")
-"""
-)
-
-m(
-    """
-### The actions come from a file, not from a model
-
-`summary/actions.yaml` — 43 entries across all 30 finding rules the library can emit,
-each with the condition under which it applies, who would do it, what it costs and what
-it trades away. A test asserts every rule has at least one entry, and that no entry is
-keyed to a rule nothing emits.
-
-The caveats are the point. An action list without them reads as a recipe and gets
-followed rather than considered.
-"""
-)
-
-c(
-    """
-from themis_assess.summary import default_catalogue
-
-catalogue = default_catalogue()
-print(f"{len(catalogue)} actions across {len(catalogue.rules)} rules")
-print()
-
-for action in catalogue.for_rule("accuracy.subgroup_gap"):
-    print(f"- {action.action}")
-    print(f"    when:   {action.precondition}")
-    print(f"    who:    {action.owner}")
-    print(f"    caveat: {action.caveat[:150]}")
-    print()
-"""
-)
-
-m(
-    """
-The order is the file's order, and it is meaningful: *check whether the subgroup axis is
-confounded with the label* comes before *reweight the training data*, because it is
-cheaper, more diagnostic, and — as §9 showed on this very dataset — frequently the actual
-answer.
-
-### What happens when a model is added
-
-The model's output is treated as untrusted input. It goes through four checks, and on any
-failure it is discarded in favour of the templates above:
-
-1. **Numeric grounding** — every number must be traceable to the evidence of the finding
-   *that sentence cites*, in a form derived from it. The scoping matters more than it
-   sounds: writing this notebook, a model produced "its correctness is 98% [F3]" and an
-   earlier version of the check passed it, because 0.98 **was** in the report — as a
-   recall threshold belonging to a different finding. The number existed and the
-   attribution was invented, which is the more insidious error. So citations are not only
-   traceability; they are the boundary of what a sentence may claim.
-2. **Vocabulary** — no metric name the assessment did not compute.
-3. **Citations** — every sentence carries `[F3]`, so a claim can be traced. Uncited
-   sentences are dropped rather than the whole narrative being rejected.
-4. **No causal language** — nothing here establishes *why* the model fails, so
-   "because", "due to", "the reason" and their kin are forbidden outright.
-
-Below, `EchoModel` stands in for a local model so the behaviour is reproducible in a
-notebook. In use you would pass `OllamaModel("qwen3.5:9b")` instead. Five responses: one
-well-behaved, one that invents a figure outright, one that takes a **real** figure from
-the wrong finding, one that asserts a cause, and one that ignores the format entirely.
-
-The well-behaved response is *built from the real statements* rather than written out, so
-it stays well-behaved as the assessment changes. Hard-coding it was the first version of
-this cell, and the finding numbers shifted underneath it on the next rebuild — which is
-its own small argument for executing documentation.
-"""
-)
-
-c(
-    """
-import json
-import re
-
-from themis_assess.summary import EchoModel
-
-statements = clinical.statements
-print(f"the model is shown {len(statements)} numbered statements. The first two:")
-for fid in list(statements)[:2]:
-    print(f"  {fid}: {statements[fid][:150]} ...")
-print()
-
-
-def figures_in(text):
-    \"\"\"The numbers a statement already contains — the only ones a sentence citing it
-    may use.\"\"\"
-    return re.findall(r"-?\\d[\\d,]*(?:\\.\\d+)?%?", text)
-
-
-# The well-behaved response is built from the real statements rather than written by
-# hand, so it stays well-behaved as the assessment changes. It restates one figure from
-# each finding and cites that finding — which is exactly what the prompt asks for.
-first, second = list(statements)[:2]
-good = {
-    "headline": "Two things stand out about this model.",
-    "themes": [
-        {
-            "title": "The first thing to know",
-            "findings": [int(first[1:])],
-            "prose": f"One measure sits at {figures_in(statements[first])[-1]} [{first}].",
-        },
-        {
-            "title": "The second",
-            "findings": [int(second[1:])],
-            "prose": f"Another sits at {figures_in(statements[second])[-1]} [{second}].",
-        },
-    ],
-}
-
-responses = {
-    "well-behaved": good,
-    "invents a figure": {
-        "headline": "The model performs strongly.",
-        "themes": [{"title": "Accuracy", "findings": [int(first[1:])],
-                    "prose": f"Its correctness is 42.4242% [{first}]."}],
-    },
-    "borrows another finding's number": {
-        "headline": "Accuracy falls short.",
-        "themes": [{"title": "Accuracy", "findings": [int(first[1:])],
-                    "prose": f"Its correctness is "
-                             f"{figures_in(statements[second])[-1]} [{first}]."}],
-    },
-    "asserts a cause": {
-        "headline": "Accuracy falls short.",
-        "themes": [{"title": "Accuracy", "findings": [int(first[1:])],
-                    "prose": f"It sits at {figures_in(statements[first])[-1]} because "
-                             f"the training set was small [{first}]."}],
-    },
-    "ignores the format": "I'd be happy to help summarise that for you!",
-}
-
-for label, response in responses.items():
-    payload = response if isinstance(response, str) else json.dumps(response)
-    result = summarise(report, audience="clinician",
-                       model=EchoModel(payload, name="demo-model"))
-    source = result.provenance["narrative_source"]
-    print(f"{label:34} -> {source}")
-    if source == "model":
-        print(f"{'':36} accepted. headline: {result.headline}")
-    else:
-        print(f"{'':36} {result.provenance['rejected_because'][:110]}")
-"""
-)
-
-m(
-    """
-Four of the five were rejected, and the summary in each case is the template version —
-identical to what you read at the top of this section. **That is the property the whole
-design rests on: adding a model can make the summary better or leave it unchanged, and
-cannot make it wrong.** The worst case is the no-model case.
-
-The rejection is also visible in the document rather than hidden. A reader can always
-tell which path wrote what they are reading.
-"""
-)
-
-c(
-    """
-bad = summarise(
-    report,
-    audience="clinician",
-    model=EchoModel(json.dumps(responses["invents a figure"]), name="demo-model"),
-)
-print(bad.to_markdown(include_actions=False, include_evidence=False)[-700:])
-"""
-)
-
-m(
-    """
-### The prompt
-
-One function builds it, so it can be printed, diffed and reviewed. It is small — the model
-sees the **findings**, never the results dictionary.
-"""
-)
-
-c(
-    """
-from themis_assess.summary import CLINICIAN, build_prompt
-
-prompt = build_prompt(CLINICIAN.order(report.findings()), CLINICIAN)
-full_report = json.dumps(report.to_dict())
-print(f"prompt:            {len(prompt):>7,} characters  (~{len(prompt)//4:,} tokens)")
-print(f"full report JSON:  {len(full_report):>7,} characters  (~{len(full_report)//4:,} tokens)")
-print()
-print(prompt[:1500])
-print("   ... [the findings follow] ...")
-"""
-)
-
-m(
-    """
-Feeding the whole dictionary would cost roughly twelve times the context **and triple the
-number of figures a model could misquote** — 142 against 40 — for no information the task
-needs. The findings are the right input, and building them was most of the work.
-
-### Watching the model work
-
-Everything above shows the *outcome* — accepted or rejected. This shows the working: the
-model that answered, the JSON it returned verbatim, what the verifier made of it, and the
-prose that survived.
-
-The model's raw output is kept in `summary.provenance["model_output"]` **whether or not it
-was accepted**. That matters for a rejection: "what did it actually say?" is the first
-question asked when a summary looks thin, and it is the only way to tell a model that
-needs a better prompt from one that needs replacing.
-
-The next cell looks for a model this machine already has:
-
-```bash
-ollama pull qwen3.5:9b        # or llama3.2, gemma3, phi4 — any instruct model
-pip install ollama
-```
-
-If it finds one, **everything below is that model's real output**. If not, the same code
-runs against a recorded response so the notebook still demonstrates the path, and says so.
-Nothing here needs a model in order to execute — which is the same property the library
-has.
-"""
-)
-
-c(
-    """
-from themis_assess.summary import find_local_model, list_ollama_models
-
-local = find_local_model(["qwen3.5:9b", "qwen3", "llama3.2", "gemma3", "phi4"])
-print("models installed here:", list_ollama_models() or "none")
-print("using:", local.name if local else "no local model — a recorded response stands in")
-"""
-)
-
-c(
-    """
-def show_working(summary, *, note=""):
-    prov = summary.provenance
-    print(f"model:            {prov.get('model', 'none')}   {note}")
-    print(f"prompt:           {prov.get('prompt_characters', 0):,} characters")
-    print(f"narrative source: {prov['narrative_source']}")
-    print()
-
-    raw = prov.get("model_output")
-    if raw is None:
-        print("no model was called.")
-        return
-
-    print("--- what the model returned, verbatim " + "-" * 40)
-    try:
-        print(json.dumps(json.loads(raw), indent=2)[:1800])
-    except json.JSONDecodeError:
-        print(repr(raw[:800]))
-    print()
-
-    check = prov.get("verification", {})
-    print("--- what the verifier made of it " + "-" * 45)
-    print(f"accepted: {check.get('ok')}")
-    for problem in check.get("problems", []):
-        print(f"  [{problem['kind']}] {problem['detail'][:160]}")
-    if not check.get("problems"):
-        print("  no objections: every number traced to the finding its sentence cites,")
-        print("  every sentence cited, no invented metric name, no asserted cause.")
-    print()
-
-    print("--- the prose the reader gets " + "-" * 48)
-    print(summary.headline)
-    for theme in summary.themes:
-        print(f"\\n## {theme.title}\\n{theme.prose}")
-
-
-recorded = EchoModel(json.dumps(good), name="recorded-response")
-summary = summarise(
-    report,
-    audience="clinician",
-    model=local or recorded,
-    keep_prompt=True,
-)
-show_working(
-    summary,
-    note="" if local else "(recorded — no local model on this machine)",
-)
-"""
-)
-
-m(
-    """
-And the same view of a rejection, which is where the provenance earns its keep. This is
-the subtle failure: the figure is **real** and appears in the report, but it belongs to a
-different finding than the one the sentence cites.
-"""
-)
-
-c(
-    """
-show_working(
-    summarise(
-        report,
-        audience="clinician",
-        model=EchoModel(json.dumps(responses["borrows another finding's number"]),
-                        name="demo-model"),
-    )
-)
-"""
-)
-
-m(
-    """
-The narrative was discarded, the templates stand, and the model's words are still on the
-record — so the rejection is diagnosable rather than a shrug.
-
-Model size matters less here than you would expect, because the task is *constrained
-rewriting* rather than reasoning: the model is arranging sentences that are already
-correct. A 3-to-9-billion-parameter model is adequate; asking a larger one to diagnose
-causes would not help, because the information is not in the input.
-
-One caution on reading a real model's output above: `narrative_source: model` means the
-four checks found nothing to object to, not that the paragraphs are good. Grounded,
-cited, non-causal prose can still be badly organised or emphasise the wrong finding, and
-no mechanical check will tell you so. That judgement stays with the reader — which is
-why the deterministic statements are printed beneath every summary.
-"""
-)
-
-# ==========================================================================
-m(
-    """
-## 13. Reproducing one cell
-
-Worth demonstrating, because it is the property most sweeps quietly lack. The seed on the
-result is enough to reproduce **one cell** of the grid in isolation — not just the whole
-sweep from the start.
-
-This works because each cell's random state is derived from the recorded seed plus the
-perturbation name, the severity and the variant index, hashed stably. An earlier version
-of this library used Python's `hash()` for that, which is randomised per process: the same
-recorded seed gave three different numbers in three runs. There are two subprocess tests
-pinning it now.
-"""
-)
-
-c(
-    """
-same = ta.RobustnessEvaluator(
-    handler,
-    perturbations=["missing_values"],
-    severities=(4,),
-    n_variants=3,
-    seed=0,                    # the seed the sweep above recorded
-).run(data, y_test)
-
-original = robustness.sweep.curve("missing_values", "balanced_accuracy")[4]
-repeated = same.curve("missing_values", "balanced_accuracy")[4]
-print(f"in the full sweep:  {original:.10f}")
-print(f"re-run alone:       {repeated:.10f}")
-print("identical:", original == repeated)
 """
 )
 
@@ -1627,6 +1100,12 @@ reason `passed is None` is a distinct outcome from `passed is False`.
 
 
 def build() -> int:
+    # Before anything else, and before the execution: never silently overwrite prose
+    # someone improved in the notebook itself.
+    refuse_if_hand_edited(TARGET, CELLS, force="--force" in sys.argv)
+    if "--check" in sys.argv:
+        return 0
+
     notebook = nbf.v4.new_notebook(cells=CELLS)
     notebook.metadata = {
         "kernelspec": {
@@ -1636,7 +1115,7 @@ def build() -> int:
         },
         "language_info": {"name": "python", "version": sys.version.split()[0]},
     }
-    target = HERE / "tutorial_classification.ipynb"
+    target = TARGET
 
     if "--no-execute" not in sys.argv:
         from nbclient import NotebookClient

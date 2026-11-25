@@ -15,8 +15,13 @@
 # another directory does not.
 #
 # Versions are generated from pyproject.toml, so the conda specs and the
-# requirements files cannot disagree. If conda-forge is missing a package,
-# drop it from here and `pip install` it after activating.
+# requirements files cannot disagree. Names are not always the same on both
+# indexes — conda-forge calls darts `u8darts` and PyTorch `pytorch` — and
+# tools/sync_requirements.py maps them.
+#
+# NOT ON conda-forge, so not in the list below. Install after activating:
+#     pip install 'safetycage[torch,red,spardacus,mahalanobis]>=0.0.67'
+# The tutorials that import them will fail without this step.
 name: themis-assess
 channels:
   - conda-forge
@@ -34,12 +39,15 @@ dependencies:
   - ruff>=0.6
   - jupyter>=1.0
   - ipykernel>=7.4.0
-  - matplotlib>=3.11.2
-  - torch>=2.14.1
-  - safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
-  - statsmodels>=0.15.0
-  - tqdm>=4.70.1
   - nbformat>=5.9
   - nbclient>=0.9
+  - u8darts>=0.39
+  - statsmodels>=0.15.0
+  - tsfresh>=0.20
+  - xgboost>=2.0
+  - shap>=0.45
+  - matplotlib>=3.11.2
+  - pytorch>=2.14.1
+  - tqdm>=4.70.1
   - hatchling
   - editables

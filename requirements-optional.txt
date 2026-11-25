@@ -19,6 +19,12 @@
 # xgboost>=2.0
 # shap>=0.45
 
+# [jupyter] — the notebook tooling the three tutorials share
+# jupyter>=1.0
+# ipykernel>=7.4.0
+# nbformat>=5.9
+# nbclient>=0.9
+
 # [mpl] — matplotlib, for the partial-dependence path only
 # matplotlib>=3.11.2
 
@@ -33,3 +39,31 @@
 # [timeseries] — the darts forecasting handler and the TimeSeries adapter
 # darts>=0.39
 # statsmodels>=0.14
+
+# [tutorial-classification] — docs/tutorial_classification.ipynb
+# jupyter>=1.0
+# ipykernel>=7.4.0
+# nbformat>=5.9
+# nbclient>=0.9
+
+# [tutorial-forecasting] — docs/forecasting_tutorial.ipynb
+# jupyter>=1.0
+# ipykernel>=7.4.0
+# nbformat>=5.9
+# nbclient>=0.9
+# darts>=0.39
+# statsmodels>=0.14
+# tsfresh>=0.20
+# xgboost>=2.0
+# shap>=0.45
+
+# [tutorial-safetycage] — docs/safetycage_tutorial.ipynb
+# jupyter>=1.0
+# ipykernel>=7.4.0
+# nbformat>=5.9
+# nbclient>=0.9
+# safetycage[torch,red,spardacus,mahalanobis]>=0.0.67
+# statsmodels>=0.15.0
+# matplotlib>=3.11.2
+# torch>=2.14.1
+# tqdm>=4.70.1

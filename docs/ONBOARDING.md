@@ -240,30 +240,39 @@ runs automatically on the public GitHub remote**. Treat the local commands in §
 
 ## 9. State of the working tree, 2026-11-19
 
-Uncommitted on `main`:
+**Everything described below is committed and pushed.** The tutorials were reorganised on
+2026-11-19 and the names now line up — one builder per notebook, each named after it:
 
-**The notebooks were renamed on 2026-11-19.** There are now two tutorials, not three:
+| Builder | Notebook |
+|---|---|
+| `docs/build_classification_tutorial.py` | `docs/tutorial_classification.ipynb` |
+| `docs/build_forecasting_tutorial.py` | `docs/forecasting_tutorial.ipynb` |
+| *(none)* | `docs/safetycage_tutorial.ipynb` |
 
-- `docs/tutorial_classification.ipynb` — **tracked**, renamed from `tutorial.ipynb`,
-  built by `docs/build_tutorial.py`. Classification, unchanged otherwise.
-- `docs/forecasting_tutorial.ipynb` — **untracked**, renamed from
-  `forecasting_tutorial copy.ipynb`, built by `docs/build_solar_forecasting_tutorial.py`.
+- `docs/tutorial_classification.ipynb` — renamed from `tutorial.ipynb`; its builder from
+  `build_tutorial.py`. Classification, unchanged otherwise.
+- `docs/forecasting_tutorial.ipynb` — renamed from `forecasting_tutorial copy.ipynb`; its
+  builder from `build_solar_forecasting_tutorial.py`.
   Spanish solar generation a week ahead from weather treated as a forecast, XGBoost via
   darts. Needs `xgboost` and the gitignored `data/weather_features.csv`.
   It was hand-edited after it was first generated — the prose rewritten, the reporting
   section removed — and **the builder was then regenerated from it**, so the two match
-  again and D57 holds: `python docs/build_solar_forecasting_tutorial.py --check` says so.
+  again and D57 holds: `python docs/build_forecasting_tutorial.py --check` says so.
   Prose belongs in the builder from here on; editing the notebook instead moves them
   apart until the builder is brought back into line, and `--check` is how you find out.
-- The electricity-load forecasting tutorial was **deleted**: the task it posed (next-step
-  load from past load) did not illustrate anything a reader needed. Its builder,
-  `docs/build_forecasting_tutorial.py`, is kept — untracked — for its prose, and now
-  writes `forecasting_tutorial_electricity.ipynb` so that it cannot overwrite the solar
-  notebook that took its old path.
-- `docs/notebook_guard.py` — **untracked**. Makes a builder refuse to overwrite a notebook
-  that has been edited by hand, with a diff of what would be lost (D78). Wired into both
-  forecasting builders; `build_tutorial.py` does without it because its notebook is
-  tracked, so a clobber there is recoverable with `git checkout`.
+- `docs/safetycage_tutorial.ipynb` — a colleague's, added upstream. It has **no builder**,
+  so D57 does not cover it: its published outputs are whatever was last run by hand, and
+  nothing re-executes them.
+- The electricity-load forecasting tutorial **and its builder were deleted**: the task it
+  posed (next-step load from past load) did not illustrate anything a reader needed. Both
+  are in the git history if the prose is ever wanted; the five decisions it produced
+  (D69–D73) are in `DECISIONS.md` in their own right and carried into the solar tutorial.
+- `docs/notebook_guard.py` — makes a builder refuse to overwrite a notebook that has been
+  edited by hand, printing a diff of what would be lost (D78). **Wired into both
+  builders** since 2026-11-25, when the rule was made general: an edit made in a notebook
+  is not to be destroyed by a builder, and resolving a difference means bringing the
+  builder up to the notebook. Both were regenerated from their notebooks that day, and
+  `--check` on either reports a match. Run it before any rebuild; it writes nothing.
 
 **Publishing the tutorials, added 2026-11-19.** `tools/build_docs_site.py` +
 `.github/workflows/pages.yml` — both **untracked**. The script converts the committed
@@ -326,12 +335,10 @@ example reports).
 
 Things that look like drift and probably are:
 
-- The README says "1329 tests"; the suite now collects **1434**.
-- The README's document table says DECISIONS covers "D1–D60"; it is at **D77**.
-- `tests/robustness_multiclass-classif_tutorial.ipynb` and
-  `tests/robustness_regression_tutorial.ipynb` are tracked, pre-restructure notebooks that
-  use seaborn/matplotlib and are not part of the suite. They are the *only* source of
-  `ruff check src tests tools` errors under the classic rule set (26 of them, all E402/F401/F811).
+- The README's document table says DECISIONS covers "D1–D60"; it is at **D78**.
+- The two pre-restructure notebooks under `tests/` were deleted on 2026-11-25. They were
+  the *only* source of `ruff check src tests tools` errors under the classic rule set
+  (26 of them, all E402/F401/F811), so that command is now clean.
 - With the locally installed **ruff 0.17.2** the same command reports **123** errors, mostly
   rules that are not in ruff's older default set (C408, I001, ISC004, RUF0xx). `pyproject`
   pins only `ruff>=0.6`, so lint results drift with the ruff version — if you are asked to
@@ -350,7 +357,7 @@ Things that look like drift and probably are:
 | Add a figure | pure builder in `viz/figures.py`, colours from `viz/theme.py`; if an analysis is needed, pair it in `viz/bundles.py`. |
 | Add a finding or a §8 rule | generator in `report/findings.py` / check in `report/rules.py`; every one needs a stable `rule` id, its evidence, and a suggestion. |
 | Change a dependency | edit `pyproject.toml`, then `python tools/sync_requirements.py`. |
-| Rebuild a tutorial | `python docs/build_tutorial.py` (classification) / `python docs/build_solar_forecasting_tutorial.py` (forecasting) — each executes every cell and fails loudly, which is what keeps the prose honest (D57), and each refuses to overwrite hand edits (D78). Needs an activated env. |
+| Rebuild a tutorial | `python docs/build_classification_tutorial.py` (classification) / `python docs/build_forecasting_tutorial.py` (forecasting) — each executes every cell and fails loudly, which is what keeps the prose honest (D57), and each refuses to overwrite hand edits (D78). Needs an activated env. |
 | Publish the tutorials as a web page | `python tools/build_docs_site.py` writes `site/` from the **committed** notebooks — nbconvert only, nothing is executed. `.github/workflows/pages.yml` does the same on a push to `main` and deploys to GitHub Pages. |
 | Understand why something is as it is | `docs/DECISIONS.md`, D1–D73. Search it before proposing a redesign. |
 

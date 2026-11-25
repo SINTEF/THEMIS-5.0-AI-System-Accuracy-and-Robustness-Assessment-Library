@@ -2,9 +2,9 @@
 __pycache__/
 *.py[cod]
 
-# environments
-.venv/
-.venv-tutorial/
+# environments. The glob covers uv project environments pointed elsewhere with
+# UV_PROJECT_ENVIRONMENT, e.g. .venv-313 — without it, a renamed one gets committed.
+.venv*/
 
 # build and packaging
 build/

@@ -16,13 +16,15 @@ This repository is created as a result of the project THEMIS 5.0 (Human-centered
 funded by the Horizon Europe program (2023-2026).
 The methods included in this repository is a result of separate assessments of three AI systems within different domains; health care, news media, and port logistics.
 See https://www.themis-trust.eu/projects for more information. 
-The methodology follows [Michałowska & Johnsen, *Evaluating Machine Learning Robustness
-Under Natural Distribution Shifts* (SINTEF Digital, 2026)](https://www.researchgate.net/publication/410991476_Evaluating_Machine_Learning_Robustness_Under_Natural_Distribution_Shifts_A_Survey_of_Benchmarks_Perturbations_Metrics_and_Assumptions?channel=doi&linkId=6a6af068f475b23f400f1ffc&showFulltext=true), referred to throughout the
-code as "the survey". 
+The robustness assessment also includes methods from the survey [Michałowska & Johnsen, *Evaluating Machine Learning Robustness
+Under Natural Distribution Shifts: A Survey of Benchmarks, Perturbations, Metrics, and Assumptions* (SINTEF Digital, 2026)](https://www.researchgate.net/publication/410991476_Evaluating_Machine_Learning_Robustness_Under_Natural_Distribution_Shifts_A_Survey_of_Benchmarks_Perturbations_Metrics_and_Assumptions?channel=doi&linkId=6a6af068f475b23f400f1ffc&showFulltext=true).
+Throughout this README file and in the code we refer this work as the "survey", and also to sections (for instance §8 means Section 8) when we refer to specific assessment methods included in the survey.
 
-Note: This code base was orchestrated using Claude Opus 5, and was created based on the separate
-accuracy and robustness assessments of the three AI system use cases explored during the THEMIS 5.0 project
-funded by the Horizon Europe program between 2023 and 2026. The code base is for most parts reviewed, and edited where needed. The code base may - using help of SWE AI agents or not - include errors, or needs improvement or clarifications. We encourage users to create an "Issue" in this case. The code base includes all methods that were applied
+**Important Note: This code base was constructed using Claude Code with the Claude Opus 5 large language model**. 
+
+
+
+The code base is for most parts reviewed, and edited where needed. The code base may include errors, or needs improvement or clarifications. We encourage users to verify their results, and to create an "Issue" whenever there is reason to believe there is an error or inaccuracy in the code. The code base includes all methods that were applied
 for these three use cases, with the aim and purpose that this code base can be valuable no matter what type of
 AI system that is investigated. Note that the code base for now only includes analysis for classification and forecasting tasks. Assessments for tasks with continuous outcomes/dependent variables (classical regression) or counting outcomes (Poisson regression) are not yet taken into account, and so errors may occurs for this type of tasks when using the code base.
 
@@ -50,26 +52,52 @@ AI system that is investigated. Note that the code base for now only includes an
 
 ## Install
 
-Python 3.13 or newer. The version floor is set by the optional `safetycage` dependency,
-which only supports 3.13 and up; keeping the whole project on one floor means every extra
-installs cleanly in the same environment.
+Python 3.13 or newer.
 
-### Three ways to work with the code
+### Four ways to work with the code
 
 The library is meant to be *read and edited*, not just called, so pick whichever of these
-fits how you already work. All three leave `src/themis_assess/` as the code that actually
+fits how you already work. All four leave `src/themis_assess/` as the code that actually
 runs — none of them makes a frozen copy.
 
-**1 — Editable install (recommended).** `-e` puts a link to this source tree on the path
-rather than copying it, so an edit to `src/themis_assess/` takes effect on the next
-import. This is the normal way to work on a package you are also changing.
+**1 — uv (recommended, and the only one with a lock file).** `uv.lock` pins an exact,
+resolved version of every dependency including the optional ones, so everybody who syncs
+it gets the same environment rather than whatever the index served that day. It also
+fetches the right Python itself.
+
+```bash
+uv sync --locked --python 3.13                        # core + dev
+uv run python -m pytest                               # 1434 tests
+```
+
+`uv sync` creates `.venv` and installs this package into it editable, so an edit to
+`src/themis_assess/` takes effect on the next import. Prefix a command with `uv run` to
+use the environment without activating it.
+
+Three flags are worth knowing from the start, because each one has bitten someone here:
+
+- **`--python 3.13`** — `requires-python` is `>=3.13`, so without it uv takes the newest
+  interpreter it can find (3.14 at the time of writing), which nothing here has been
+  tested against.
+- **`--locked`** — fails rather than silently updating `uv.lock`. Drop it when you mean
+  to change a dependency, and commit the new lock with the change.
+- **`--extra`** — `uv sync` is *exact*. It installs what you ask for and **removes
+  everything else**, so extras do not accumulate across commands: name all of them every
+  time. To run the notebooks, see
+  [Running the tutorial notebooks](#running-the-tutorial-notebooks) for the one command
+  that covers all three.
+
+**2 — Editable install into an environment you made yourself.** `-e` puts a link to this
+source tree on the path rather than copying it. This is the normal way to work on a
+package you are also changing, and the right choice if you already have a 3.13
+environment you like.
 
 ```bash
 pip install -e ".[dev]"             # + pytest and ruff
-python -m pytest                    # 1329 tests
+python -m pytest
 ```
 
-**2 — Requirements files, no package install.** For conda, or for a venv you want to
+**3 — Requirements files, no package install.** For conda, or for a venv you want to
 build from a file, or when you would simply rather not install the package at all.
 `pyproject.toml` puts `src/` on the test path, so the suite runs with nothing installed:
 
@@ -80,10 +108,29 @@ pip install -r requirements-dev.txt
 python -m pytest                                      # works: src/ is on the test path
 
 # conda
-conda env create -f environment.yml                   # includes `-e . --no-deps` + Jupyter
+conda env create -f environment.yml                   # conda-forge only; no pip: section
 conda activate themis-assess
+pip install -e . --no-deps --no-build-isolation       # the editable link, offline
 python -m pytest
 ```
+
+**conda cannot supply everything.** Two dependencies do not come from conda-forge under
+the names `pyproject.toml` uses, and `environment.yml` is generated with that in mind:
+
+| PyPI | conda-forge | |
+|---|---|---|
+| `torch` | **`pytorch`** | `conda install torch` finds an unrelated 2021 package |
+| `darts` | **`u8darts`** | likewise; `[timeseries]` is not in `environment.yml` anyway |
+| `safetycage` | **not packaged** | install it with pip after activating — the file says so in a comment |
+
+So a conda environment for `docs/safetycage_tutorial.ipynb` needs one extra step:
+
+```bash
+pip install 'safetycage[torch,red,spardacus,mahalanobis]>=0.0.67'
+```
+
+If that list ever looks wrong, it is generated: fix `CONDA_NAMES` or `CONDA_ONLY_VIA_PIP`
+in `tools/sync_requirements.py` rather than editing `environment.yml`.
 
 **Do you also need `pip install -e ".[dev]"` in a conda environment?** No — and it would
 be the wrong command there, because it asks pip to resolve dependencies conda has already
@@ -93,8 +140,13 @@ placed. What you *do* want is the editable **link** without the dependency resol
 pip install -e . --no-deps
 ```
 
-`environment.yml` already includes that line, so a `conda env create` gives you a working
-environment in one step. Add it by hand if you built the environment another way.
+`environment.yml` does not run that for you — it is a separate step on purpose, and the
+file's own header says so. With `hatchling` and `editables` already placed by conda, it
+touches the network zero times:
+
+```bash
+pip install -e . --no-deps --no-build-isolation
+```
 
 Without the link, `pytest` still works — `pyproject.toml` puts `src/` on the test path —
 but `import themis_assess` from a notebook or from a script in another directory does not.
@@ -104,7 +156,7 @@ For those, either install the link or set the path yourself:
 PYTHONPATH=src python my_assessment.py                 # Windows: set PYTHONPATH=src
 ```
 
-**3 — Just read it.** Everything is plain Python under `src/themis_assess/`, with no code
+**4 — Just read it.** Everything is plain Python under `src/themis_assess/`, with no code
 generation, no plugin discovery and no import-time magic. `git clone` and open the files.
 
 ### The requirements files
@@ -113,15 +165,20 @@ generation, no plugin discovery and no import-time magic. `git clone` and open t
 |---|---|
 | `requirements.txt` | the core runtime — numpy, pandas, scikit-learn, scipy, plotly, pyyaml |
 | `requirements-dev.txt` | the core plus pytest and ruff. What CI installs. |
-| `requirements-tutorial.txt` | the core plus Jupyter, for the tutorial notebooks |
+| `requirements-notebooks.txt` | the core plus everything the three notebooks in `docs/` need. Per-notebook, use the extras instead. |
 | `requirements-optional.txt` | the five extras as one annotated menu, all commented out |
-| `environment.yml` | conda: dev + tutorial requirements, plus `-e . --no-deps` |
+| `environment.yml` | conda: dev + tutorial requirements under their conda-forge names. The editable link is a separate command, documented in its header. |
+| `uv.lock` | the exact resolved version of every dependency, for `uv sync`. **Not generated by `sync_requirements.py`** — `uv lock` writes it. |
 
 **These files are generated from `pyproject.toml`.** That is the single source of truth;
 after changing a dependency, run `python tools/sync_requirements.py`, and
 `tests/test_requirements.py` fails if they are stale. Two hand-maintained lists of
 dependencies drift, the drift is silent, and the day one is bumped and the other is not,
 the conda user and the pip user are running different libraries with nothing to say so.
+
+`uv.lock` is the exception: `uv lock` maintains it, no test checks it against
+`pyproject.toml`, and it can therefore drift in exactly the way the generated files
+cannot. Run `uv lock` in the same commit as any dependency change.
 
 The extras stay commented out in `requirements-optional.txt` on purpose: each pulls in a
 substantial dependency tree, and [`Darts`](https://unit8co.github.io/darts/) and `safetycage` have transitive pins that may
@@ -131,8 +188,11 @@ not co-exist in one environment. Uncomment what you need, or install one directl
 pip install -e ".[timeseries]"      # darts, statsmodels — the forecasting handler
 pip install -e ".[text]"            # transformers, textattack — text perturbations
 pip install -e ".[explain]"         # tsfresh, xgboost, shap — error attribution
-pip install -e ".[safetycage]"      # safetycage — model-centric robustness metrics (§5.2)
-pip install -e ".[tutorial]"        # jupyter, nbformat, nbclient
+pip install -e ".[safetycage]"      # safetycage — misclassification detection
+pip install -e ".[tutorial-classification]"   # Jupyter — docs/tutorial_classification.ipynb
+pip install -e ".[tutorial-forecasting]"     # + darts, xgboost — docs/forecasting_tutorial.ipynb
+pip install -e ".[tutorial-safetycage]"      # + torch, safetycage — docs/safetycage_tutorial.ipynb
+pip install -e ".[notebooks]"       # the above plus timeseries and explain — all three notebooks
 ```
 
 ### Running the tutorial notebooks
@@ -150,30 +210,70 @@ locally: `python tools/build_docs_site.py` writes `site/`.
 |---|---|---|---|
 | `docs/tutorial_classification.ipynb` | classification | breast cancer Wisconsin, ships with scikit-learn | none |
 | `docs/forecasting_tutorial.ipynb` | forecasting — solar generation a week ahead, from weather treated as a forecast | Spanish generation (ships with darts) **plus a manual download**, see below | `[timeseries]`, `xgboost` |
+|`docs/safetycage_tutorial.ipynb` | Local misclassification detection | MedMNIST (3D Biomedical Images) | safetycage python package (pip installable)
+
+#### With uv: one environment for all three
+
+```bash
+uv sync --locked --python 3.13 --extra notebooks
+uv run python -m ipykernel install --user --name themis --display-name "themis-assess"
+uv run jupyter lab
+```
+
+Then pick the **themis-assess** kernel in Jupyter, or the `.venv` interpreter in VS Code.
+
+`notebooks` exists so that running a tutorial does not require knowing which extra holds
+which dependency. It is the union of three:
+
+| Extra | Brings | Needed by |
+|---|---|---|
+| `tutorial` | Jupyter, matplotlib, torch, safetycage, statsmodels, tqdm | all three — and `safetycage_tutorial.ipynb` needs nothing else |
+| `timeseries` | darts, statsmodels | `forecasting_tutorial.ipynb` |
+| `explain` | tsfresh, **xgboost**, shap | `forecasting_tutorial.ipynb` |
+
+Use those names if you want a smaller environment — but note `xgboost`, which catches
+people: the forecasting notebook never imports it, darts does for `XGBModel`, so leaving
+out `explain` fails at the model fit rather than at an import.
+
+**If you do name extras individually, name them all in one command.** `uv sync` is
+*exact*: it installs what you ask for and removes everything else, so they do not
+accumulate. Running `uv sync --extra timeseries` after `uv sync --extra tutorial` does
+not add darts to what you have — it uninstalls 94 packages and leaves you with 9.
+
+**`--python 3.13` is worth passing.** `requires-python` is `>=3.13`, so without it uv
+takes the newest interpreter it can find — 3.14 at the time of writing — which nothing
+here has been tested against and which not every wheel supports yet. Changing your mind
+later is the same command: uv replaces the environment in place.
+
+**`--locked`** fails rather than silently rewriting `uv.lock`. Drop it when you mean to
+change a dependency, and commit the new lock alongside the change.
+
+#### With pip or conda
 
 `docs/tutorial_classification.ipynb` is the fastest way in. It needs the core
 dependencies plus Jupyter, and nothing else: the dataset ships with scikit-learn, so
 there is nothing to download.
 
 ```bash
-# conda — environment.yml already includes Jupyter and the editable link
+# conda — environment.yml brings Jupyter; the editable link is a separate step
 conda env create -f environment.yml
 conda activate themis-assess
+pip install -e . --no-deps --no-build-isolation
 jupyter notebook docs/tutorial_classification.ipynb
 
 # or with pip, in a venv
-pip install -e ".[tutorial]"
+pip install -e ".[tutorial-classification]"
 jupyter notebook docs/tutorial_classification.ipynb
 ```
 
-The forecasting notebook needs darts and `xgboost`, and one **manual download**: the
-Spanish weather file is not in the repository, because `data/` is gitignored. Take
+The forecasting notebook needs the  Darts and `xgboost` python packages, and one **manual download**: the
+Spanish weather file is not in the repository. Take
 `weather_features.csv` from the [Kaggle energy and weather
 dataset](https://www.kaggle.com/datasets/nicholasjhana/energy-consumption-generation-prices-and-weather)
 and put it in `data/`:
 
 ```bash
-pip install -e ".[timeseries,tutorial]" xgboost
+pip install -e ".[tutorial-forecasting]"     # Jupyter, darts, xgboost — all of it
 jupyter notebook docs/forecasting_tutorial.ipynb
 ```
 
@@ -186,8 +286,8 @@ To regenerate a notebook rather than read it — each builder executes every cel
 fails loudly if any raises, which is what keeps the prose honest about its own outputs:
 
 ```bash
-python docs/build_tutorial.py
-python docs/build_solar_forecasting_tutorial.py      # about four minutes, most of it the fit
+python docs/build_classification_tutorial.py
+python docs/build_forecasting_tutorial.py      # about four minutes, most of it the fit
 ```
 
 A builder **refuses to overwrite a notebook that has been edited by hand**, and prints a
@@ -492,7 +592,7 @@ figure.
 | check your own report for completeness | `check_report(report.to_dict())` |
 | add a metric / perturbation / handler / figure | [extending](#how-to-extend-each-layer) |
 | add or change a dependency | `pyproject.toml`, then `python tools/sync_requirements.py` |
-| understand why something is built the way it is | `docs/DECISIONS.md` (D1–D60) |
+| understand why something is built the way it is | `docs/DECISIONS.md` (D1–D78) |
 
 ## How to extend each layer
 
@@ -848,7 +948,7 @@ Each is now returned, and each has a test.
 
 ```bash
 pip install -e ".[dev]"             # or: pip install -r requirements-dev.txt
-python -m pytest                    # 1329 tests
+python -m pytest                    # 1434 tests
 python -m pytest tests/report -q    # one layer
 ruff check src tests tools
 python tools/sync_requirements.py --check    # are the requirements files current?
@@ -884,11 +984,11 @@ Users are welcome to report in "Issues" at this repository.
 |---|---|
 | `README.md` | this file |
 | `docs/ONBOARDING.md` | the orientation map for a new contributor — or a new AI assistant session: the mental model, where the code lives, how to run the suite on a Windows conda setup, the invariants a change must not break, and the current state of the working tree |
-| `docs/DECISIONS.md` | every design decision, D1–D60, each with the alternative rejected and why. The authority where it disagrees with anything else. |
+| `docs/DECISIONS.md` | every design decision, D1–D78, each with the alternative rejected and why. The authority where it disagrees with anything else. |
 | `docs/ARCHITECTURE.md` | the survey-section-by-survey-section map of what was ported from where, including the metrics not yet implemented |
 | `docs/tutorial_classification.ipynb` | the full walkthrough for **classification**, on the breast cancer Wisconsin dataset |
 | `docs/forecasting_tutorial.ipynb` | the full walkthrough for **forecasting**, on Spanish solar generation with weather as future covariates |
-| `docs/build_tutorial.py`, `docs/build_solar_forecasting_tutorial.py` | the generators. Each executes every cell, so no notebook can drift from the library — and refuses to overwrite one that has been edited by hand. |
+| `docs/build_classification_tutorial.py`, `docs/build_forecasting_tutorial.py` | the generators. Each executes every cell, so no notebook can drift from the library — and refuses to overwrite one that has been edited by hand. |
 | `examples/assessment.yaml` | a fully commented config file |
 | `requirements*.txt`, `environment.yml` | generated from `pyproject.toml` by `tools/sync_requirements.py` |
 
@@ -899,4 +999,4 @@ metrics and the equation numbers in the docstrings are how a reader gets from a
 number in a report back to its definition.
 
 > Michałowska, K. & Johnsen, P. (2026). *Evaluating Machine Learning Robustness Under
-> Natural Distribution Shifts.* SINTEF Digital.
+> Natural Distribution Shifts: A Survey of Benchmarks, Perturbations, Metrics, and Assumptions * SINTEF Digital.
