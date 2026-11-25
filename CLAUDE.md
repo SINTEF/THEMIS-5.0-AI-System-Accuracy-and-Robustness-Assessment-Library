@@ -6,7 +6,7 @@ invariants a change must not break, and the current state of the working tree.
 
 Three things worth knowing before the first command:
 
-- **Authority order.** `docs/DECISIONS.md` (D1–D73) wins over the README, which wins over
+- **Authority order.** `docs/DECISIONS.md` (D1–D81) wins over the README, which wins over
   `docs/ARCHITECTURE.md` (a historical plan, partly superseded). Search DECISIONS before
   proposing a redesign — the alternative was probably already rejected, with reasons.
 - **Running anything.** `python` on PATH is the Microsoft Store stub. Use an activated conda

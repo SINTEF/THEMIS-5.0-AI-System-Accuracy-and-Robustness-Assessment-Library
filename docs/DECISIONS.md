@@ -1167,6 +1167,115 @@ and `--check` then reported no difference. This is the shape the resolution shou
 every time: the builder is brought up to the notebook in one deliberate step, not a
 merge, and the step is finished only when `--check` is silent.
 
+*Generalised, 2026-11-25.* The rule is now stated the other way round, because that is
+the way it is actually used: **an edit made in a notebook is never destroyed by a
+builder.** Editing a notebook is allowed and expected — it is where you can see the
+output you are describing. What an edit does is put the two out of step, and the
+resolution is always to bring the *builder* up to the notebook. Both builders carry the
+guard as of that date, and both were regenerated from their notebooks:
+`build_classification_tutorial.py` had reached 88 cells against the notebook's 59.
+
+## Decisions taken while publishing the tutorials (D79-D81)
+
+**D79 — one extra per notebook, named after it.** `pyproject.toml` had a single
+`tutorial` extra holding Jupyter plus what the safetycage notebook needed. The name read
+as "what the tutorials need", so someone installing it and opening the forecasting
+notebook got an environment without `darts` — and the failure surfaced three sections in,
+at the model fit, because the notebook never imports `xgboost` either (darts does, for
+`XGBModel`). Capability extras answer *what can the library do*; a reader opening a
+notebook is asking *what does this one need*, which is a different question.
+
+So `tutorial-classification`, `tutorial-forecasting` and `tutorial-safetycage`, each
+composing the capability extras it needs via `themis-assess[...]`, plus `notebooks` for
+all three. The capability extras (`timeseries`, `explain`, `safetycage`, `mpl`, `text`)
+are untouched.
+
+*The alternative rejected* was three flat lists repeating `jupyter>=1.0` and friends.
+Composition is readable in `pyproject.toml` and is what pip and uv resolve; the cost is
+that conda cannot resolve a self-referential extra, which `tools/sync_requirements.py`
+now handles by flattening. Flattening turned up a defect of its own: `timeseries` wants
+`statsmodels>=0.14` and `safetycage` wants `>=0.15.0`, and the conda spec list
+de-duplicates by name keeping the first — so the stricter floor was dropped depending on
+dictionary order. The flattener keeps the higher floor, with a test pinning it.
+
+`environment.yml` was broken outright for a week before this: the extras list went into
+conda specs verbatim, and conda-forge has no `safetycage` at all, packages PyTorch as
+`pytorch`, and does not understand PEP 508 extras markers. `conda env create` failed on
+the whole file. The job that would have caught it, `conda_environment`, lives in
+`.gitlab-ci.yml` and does not run — see the note at the end of this section.
+
+**D80 — a notebook may not carry an absolute local path, and the path is redacted rather
+than the warning deleted.** The notebooks are committed with their outputs and published
+to GitHub Pages, so an output is a public web page. The usual way a path gets there is
+invisible while it happens: a dependency raises a warning, Python prints it prefixed with
+the absolute path of the file that raised, the cell captures it as stderr, and the
+notebook is committed with a username and a directory layout inside it. That happened —
+`docs/tutorial_classification.ipynb` published a scipy `RuntimeWarning` prefixed with a
+home directory, and it was found by a reader of the public site.
+
+`tools/notebook_privacy.py` shortens such a path to its last three components. It does
+not drop the warning: a warning that says *results may be unreliable* is information the
+reader is entitled to, and deleting it to hide the path would trade a privacy problem for
+an honesty one. Three layers check it, deliberately at different moments —
+`tests/test_notebook_privacy.py` on the committed notebooks,
+`tools/build_docs_site.py` at publish time (so a leak fails the Pages build and nothing
+deploys), and the tool itself on demand.
+
+*What this does not do* is clean a page already published. Pages serves the last
+successful deployment until a new one succeeds, so a leak that reached the site is
+removed only by committing the redaction and letting the workflow redeploy.
+
+**D81 — the tutorials are published as exported HTML, not as rendered notebooks.**
+Committing notebooks with outputs lets someone who clones the repository read them, but
+GitHub's notebook renderer does not execute embedded JavaScript, so every plotly figure —
+which is all of them, under D10 — comes out blank in the repository web view. A reader
+who has not cloned anything is the one most worth serving.
+
+So `tools/build_docs_site.py` converts the committed notebooks to standalone pages with
+an index, and `.github/workflows/pages.yml` deploys them. It executes nothing: the
+outputs it publishes are the ones the builders put there under D57, which is what makes
+"published" and "verified" the same artefact. A notebook that is not committed is skipped
+with a warning rather than failing the build, so the site still publishes what exists.
+
+**A note on which CI this is.** The repository's remote is GitHub, and its only
+CI configuration was `.gitlab-ci.yml`, which GitHub ignores — so the eight jobs in it, the
+test matrix and lint and the requirements check and the conda environment among them,
+**were not running anywhere.** `.github/workflows/pages.yml` is the first workflow GitHub
+actually executes here. Porting the rest is open work, and until it is done "CI is green"
+says nothing about this repository.
+
+### Two defects found running the tutorials on Python 3.13, not yet fixed
+
+Both were found by executing the notebooks rather than by a test, and both are left for a
+decision because fixing either changes a reported number.
+
+**`relative_robustness` reports a value outside its own declared range.** The registry
+specifies it `higher_is_better=True, bounds=(0.0, 1.0), target=1.0` (survey §5.1.3
+Eq. 11), but `assessment/scoring.py` fills its *aggregate* with
+`degradation.total_relative_robustness(scores)` — Eq. 12, a sum across perturbations. With
+three perturbations averaging 0.861 it reports **2.5827**, identical to
+`total_relative_robustness`, which is the tell. The normaliser then clamps every value
+≥ 1 to exactly 1.0, so all models land on the same point and the axis is dropped as
+degenerate — which is how it surfaced: the classification tutorial named
+`relative_robustness` as a polar axis and started raising `KeyError`.
+
+This is the same shape as the three defects recorded after D77: correct in one regime
+(one perturbation, where the sum *is* the single ratio ≤ 1) and meaningless in another.
+The fix is one line — the mean, as `absolute_relative_robustness` and `error_inflation`
+already use, leaving `total_relative_robustness` to be the sum. The tutorial was pointed
+at `absolute_relative_robustness` in the meantime so that it runs.
+
+**`pairwise_comparisons` runs Welch's t-test against a group with zero variance.** In the
+classification tutorial the `small` group is uniformly correct — sd 0, n = 57 — so scipy
+warns *"Precision loss occurred in moment calculation due to catastrophic cancellation …
+Results may be unreliable"*, and the notebook nevertheless prints the resulting p-value as
+a conclusion (*"medium vs small … differ"*). `welch_anova` in the same module already
+guards this case: it raises on zero variance and `compare_groups` records
+`welch_skipped`, falling back to Kruskal-Wallis. The pairwise path has no such guard.
+
+It is also the recurring source of D80 leaks, because the warning is printed with scipy's
+absolute path and comes back on every execution.
+
 ## Still to be tested, not decided
 
 **Does `darts` (0.39.0 or newer) install and run on Python 3.13 with numpy 2.x / pandas 3.x?**
@@ -1180,13 +1289,27 @@ scipy 1.18.1 / **darts 0.48.1**, all from conda-forge, runs the full test suite 
 executes the forecasting tutorial of the day (the electricity one, since retired) end to end. So the numpy 2 half of the question
 is settled, and the `[timeseries]` extra is usable today.
 
-**Two parts remain open.** Python *3.13* was not tried — 3.12 was, which is what
-`safetycage`'s floor of ≥3.13 makes the interesting number. And **pandas 3.x was not
-tried with darts**: this environment pins `pandas<3` deliberately, following the only
-combination already known to work on this machine. Since the one other local environment
-carrying the library (`themis-assess-312`) runs pandas 3.0.6 *without* darts, the pandas
-3 + darts question is exactly as untested as it was. Anyone resolving it should start
-there rather than from this environment.
+**Fully answered, 2026-11-25.** Both remaining parts resolved, by building the project
+environment with uv and executing all three notebooks in it.
+
+**Python 3.13: yes, and the extras coexist.** `.venv` on CPython **3.13.16** holds
+darts 0.48.1, torch 2.14.1 and safetycage 0.0.67 in one resolution — `uv.lock` resolves
+`[timeseries]`, `[explain]` and `[safetycage]` together with no declared conflicts — and
+all three tutorials run in it. That was the question `requires-python = ">=3.13"` had been
+raised on without evidence; the evidence now exists.
+
+**pandas 3.x with darts: yes, with two fixes.** pandas **3.1.0**, forecasting tutorial end
+to end, zero errors. Neither fix was a packaging problem, and neither was visible until
+the notebook was actually executed: darts calls `inferred_freq`, whose return type changes
+in pandas 4, so the setup cell now chooses the current behaviour explicitly with
+`pd.set_option("future.infer_freq_returns_offset", False)`; and the notebook's own
+`index.dayofyear` is deprecated in favour of `day_of_year`, which fired once per forecast
+origin — 1413 warnings, each printed with an absolute path, which is how D80's leak got
+into a committed notebook in the first place.
+
+The general lesson is the one D57 already asserts and this confirms: a dependency bump is
+tested by *executing* the notebooks, not by importing the library. The test suite passed
+throughout.
 
 A practical note for whoever does, because it cost an afternoon and looks nothing like a
 packaging problem: on Windows, invoking a conda environment's `python.exe` **without

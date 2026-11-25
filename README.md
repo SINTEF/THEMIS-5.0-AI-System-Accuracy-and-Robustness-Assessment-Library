@@ -617,7 +617,7 @@ figure.
 | check your own report for completeness | `check_report(report.to_dict())` |
 | add a metric / perturbation / handler / figure | [extending](#how-to-extend-each-layer) |
 | add or change a dependency | `pyproject.toml`, then `python tools/sync_requirements.py` |
-| understand why something is built the way it is | `docs/DECISIONS.md` (D1–D78) |
+| understand why something is built the way it is | `docs/DECISIONS.md` (D1–D81) |
 
 ## How to extend each layer
 
@@ -1009,7 +1009,7 @@ Users are welcome to report in "Issues" at this repository.
 |---|---|
 | `README.md` | this file |
 | `docs/ONBOARDING.md` | the orientation map for a new contributor — or a new AI assistant session: the mental model, where the code lives, how to run the suite on a Windows conda setup, the invariants a change must not break, and the current state of the working tree |
-| `docs/DECISIONS.md` | every design decision, D1–D78, each with the alternative rejected and why. The authority where it disagrees with anything else. |
+| `docs/DECISIONS.md` | every design decision, D1–D81, each with the alternative rejected and why. The authority where it disagrees with anything else. |
 | `docs/ARCHITECTURE.md` | the survey-section-by-survey-section map of what was ported from where, including the metrics not yet implemented |
 | `docs/tutorial_classification.ipynb` | the full walkthrough for **classification**, on the breast cancer Wisconsin dataset |
 | `docs/forecasting_tutorial.ipynb` | the full walkthrough for **forecasting**, on Spanish solar generation with weather as future covariates |
